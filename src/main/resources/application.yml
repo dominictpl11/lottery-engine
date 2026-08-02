@@ -1,0 +1,87 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /lottery
+
+spring:
+  application:
+    name: lottery-engine
+  
+  # 数据源配置
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/lottery_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+
+  # Redis配置
+  redis:
+    host: localhost
+    port: 6379
+    password: 
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
+
+  # RocketMQ配置
+  rocketmq:
+    name-server: localhost:9876
+    producer:
+      group: lottery-producer-group
+      send-message-timeout: 3000
+      max-message-size: 4194304
+
+# MyBatis配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.seckiller.lottery.infrastructure.po
+
+# Dubbo配置
+dubbo:
+  application:
+    name: lottery-engine
+  registry:
+    address: zookeeper://localhost:2181
+  protocol:
+    name: dubbo
+    port: 20880
+  scan:
+    base-packages: com.seckiller.lottery.interfaces.facade
+
+# Redisson配置
+spring:
+  redis:
+    redisson:
+      config: |
+        singleServerConfig:
+          address: "redis://localhost:6379"
+          database: 0
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.seckiller.lottery: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+
