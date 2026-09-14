@@ -9,39 +9,48 @@
 <body>
 <header>
   <h1>Lottery Engine</h1>
-  <p class="sub">并发安全的营销抽奖服务 · 这个页面用来<strong>当场验证</strong>它的并发特性，而不是演示动画</p>
+  <p class="sub">并发安全的营销抽奖服务</p>
 </header>
 
 <main>
-  <section class="panel" id="activity-panel">
-    <h2>活动</h2>
-    <div id="activity-info" class="muted">加载中…</div>
-    <table id="award-table">
-      <thead><tr><th>奖品</th><th>类型</th><th>权重</th><th>剩余 / 总量</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </section>
-
-  <section class="panel">
-    <h2>抽一次</h2>
-    <div class="row">
-      <label>用户 ID</label>
-      <input id="user-id" value="demo_user">
-      <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换个用户</button>
+  <section class="panel hero">
+    <div class="wheel-wrap">
+      <div class="pointer"></div>
+      <canvas id="wheel" width="360" height="360"></canvas>
+      <button id="spin-btn" class="spin">抽奖</button>
     </div>
-    <button id="draw-btn" class="primary">抽奖</button>
-    <div id="draw-result" class="result"></div>
-    <details class="raw">
-      <summary>请求 / 响应原文</summary>
-      <pre id="draw-raw"></pre>
-    </details>
+
+    <div class="hero-side">
+      <div id="activity-info" class="muted">加载中…</div>
+
+      <div class="row">
+        <label>用户 ID</label>
+        <input id="user-id" value="demo_user">
+        <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换一个</button>
+      </div>
+
+      <div id="draw-result" class="result">
+        <span class="muted">点中间的按钮开始</span>
+      </div>
+
+      <table id="award-table">
+        <thead><tr><th>奖品</th><th>概率</th><th>剩余</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <details class="raw">
+        <summary>请求 / 响应原文</summary>
+        <pre id="draw-raw"></pre>
+      </details>
+    </div>
   </section>
 
   <section class="panel">
     <h2>并发测试</h2>
     <p class="muted">
-      同时打出 N 个请求，跑完直接核对：<strong>成功抽奖数是否 ≤ 消耗的库存</strong>、
-      <strong>库存是否为负</strong>。这是这个项目的核心主张，可以在这里当场证伪。
+      转盘只能证明接口调得通。这一栏用来<strong>当场证伪</strong>这个项目的核心主张：
+      同时打出 N 个请求，跑完直接对账——产生的订单数是否等于消耗的库存、
+      库存有没有被扣成负数。
     </p>
     <div class="row">
       <label>并发数</label>
@@ -57,7 +66,7 @@
 <footer>
   <a href="/docs">Swagger</a> ·
   <a href="https://github.com/dominictpl11/lottery-engine">GitHub</a> ·
-  <span class="muted">活动 ID <code id="aid-label">100001</code></span>
+  <span class="muted">活动 ID <code>100001</code></span>
 </footer>
 
 <script src="/static/app.js"></script>
