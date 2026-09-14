@@ -73,3 +73,7 @@ hs_err_pid*
 # 本地环境变量与密钥（REQUIREMENTS.md NFR-5），不得提交
 .env
 .env.local
+
+# 压测时的服务端日志，仅用于本地排查
+bench-server.log
+.bench_tmp/

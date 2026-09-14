@@ -206,3 +206,163 @@ member（`ZADD key now now`），同一刻的两次请求会被 ZADD 去重成�
 
 这个教训对 Phase 4 的 Locust 压测直接相关：**压测跑不出数字时，先确认瓶颈不在
 压测客户端自己身上**，否则会把客户端的极限误报成服务端的极限。
+
+---
+
+## Phase 3 · pytest 测试体系
+
+`(待填)` · 76 个用例 · unit 16 / integration 53 / concurrency 7
+
+### 起点
+
+前三个阶段的验证全靠一次性脚本，跑完就扔在 scratchpad 里。这意味着：没有回归保护，
+每次改动都得靠人重新想一遍"这会不会破坏之前修好的东西"。
+
+### 关键决策
+
+**测试跑在独立的库上。** MySQL 用 `lottery_test`，Redis 用 db index 1。
+测试要 `TRUNCATE` 和 `FLUSHDB` 才能保证用例之间互不干扰，跑在开发库上迟早会误删数据。
+`conftest.py` 里加了两条断言，跑错目标直接失败而不是清空开发数据：
+
+```python
+assert "lottery_test" in settings.database_url
+assert r.connection_pool.connection_kwargs.get("db") == 1
+```
+
+`lottery_test` 库由 compose 的 init 脚本创建，而不是靠测试代码用 root 权限去建——
+测试不应该需要 root。
+
+**环境变量必须在导入 app 之前设好。** `settings` 是模块级单例，一旦导入就固定。
+放在 `conftest.py` 顶部有效，因为 pytest 保证 conftest 先于测试模块加载。
+
+**测试库用 `metadata.create_all` 而不是跑 Alembic。** 生产路径是迁移，但测试库每次
+从零开始，两者的真源都是 `app/domain/models.py`，直接建表更快且等价。
+迁移本身能否复现结构由 Phase 1 的验收保证。
+
+**并发测试用线程池打进程内的 ASGI 应用。** 它验证的是 Redis Lua 与 MySQL 条件
+UPDATE 的原子性，这两者跨进程同样成立。真正的多进程验证交给 Phase 4 的压测。
+
+**统计测试的容差写了理由，不是拍脑袋。** 10 万次模拟、相对误差 5%：按二项分布，
+p=0.01 时标准差约 0.03%，5% 足够宽松到不会偶发失败，又足够紧到能抓出"权重没生效"。
+
+### 覆盖了什么
+
+| 层 | 内容 |
+| --- | --- |
+| unit | 抽奖算法（空列表 / 零权重 / 固定种子可复现 / 分布符合权重 / 权重排序）、时区约定 |
+| integration | 活动与奖品接口的正常与边界、抽奖链路的 8 类业务拒绝、Redis 四个组件的边界行为、5 条补偿路径 |
+| concurrency | 库存不超卖、多奖品分别限量、每日配额在并发下不被击穿、同 `request_id` 并发只产生一条订单、DB 唯一约束兜底 |
+
+其中多条是显式的缺陷回归保护：D2（每日配额与限流是两条规则）、D4（naive 时间被拒）、
+D6（非法枚举被拒）、D7（不存在的活动不落库），以及旧 Java 版 ZSet member 用时间戳
+导致限流偏松的那个 bug。
+
+### 补偿路径怎么测的
+
+"Redis 已扣库存但 MySQL 写入失败"在正常流量下几乎不会发生，只能注入：
+
+```python
+monkeypatch.setattr(process.db, "commit", boom)
+with pytest.raises(DrawPersistenceError):
+    process.draw(...)
+assert int(redis_client.get(act_key)) == act_before   # 库存被归还
+```
+
+还验证了一条容易漏的：失败后幂等占位必须释放，否则一次偶发的数据库抖动会把那个
+`request_id` 永久锁死。
+
+### 顺带修的
+
+`app/main.py` 的 `@app.on_event("startup")` 已被 FastAPI 弃用，改成 `lifespan`
+异步上下文管理器。测试跑起来才注意到这个警告。
+
+---
+
+## Phase 4 · Locust 压测与瓶颈定位
+
+`(待填)` · 报告见 [`docs/benchmark.md`](docs/benchmark.md)
+
+### 起点
+
+"支持高并发"此前只是一句没有数据支撑的话。Phase 3 的并发测试证明了**正确性**
+（不超卖、不重复），但没有回答**能扛多少**。
+
+### 关键决策
+
+**每次请求用全新的 `request_id` 和 `user_id`。** 前者复用会命中幂等缓存，
+测的就变成 Redis GET；后者复用会立刻撞上 10s/3 次的频率限流，测的就变成限流拒绝路径。
+两种情况下拿到的 RPS 都很好看，但和抽奖链路没关系。
+
+**业务拒绝不计入失败率。** 库存不足、限流是系统的正确行为，算成 failure 会让这个
+指标失去诊断价值。压测里按 `reject_reason` 单独统计。
+
+**压测必须多 worker。** 单进程下 GIL 会让 RPS 失真，而且进程内实现看起来也"能用"，
+演示不出 Redis 方案的必要性。
+
+**连接池耗尽返回 503 而不是 500。** 服务端没有出错，只是负载超过了它能同时处理的量。
+分开之后失败率才有诊断价值：503 代表机器到顶，500 代表有 bug。
+
+### 发现的真实瓶颈
+
+第一次跑就出现 200 并发 15 次 500、500 并发 75 次，最大延迟 30929 ms。
+**30 秒正好是 SQLAlchemy `pool_timeout` 的默认值**，日志坐实：
+
+```
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached,
+connection timed out, timeout 30.00
+```
+
+默认每进程只有 15 条连接（5 + 10），4 worker 共 60 条，而 FastAPI 的同步端点跑在
+40 线程的线程池里。做了一组只改连接池的对照：
+
+| pool + overflow | 4 worker 合计 | Stress RPS | Stress 失败 |
+| --- | --- | --- | --- |
+| 5 + 10（默认） | 60 | 49.2 | 372 |
+| 20 + 10 | 120 | 73.3 | 312 |
+| 40 + 20 | 240 | 108.2 | 246 |
+
+同时把 MySQL `max_connections` 从 151 提到 500，排除数据库端的假性瓶颈。
+
+**连接池翻倍只换来 21% 的失败下降** —— 这个比例说明瓶颈已经转移：连接不是不够分，
+而是每条被占用得更久（查询在饱和的 CPU 上变慢）。所有组件跑在同一台笔记本上，
+CPU 才是天花板。
+
+所以 500 并发档的结论不是"再调大点"，而是**这台机器的饱和点在 200 并发附近**。
+这恰好回答了项目文档 §26 Q17："流量扩大 10 倍，哪里最先成为瓶颈" —— 先是连接池，
+修完之后是 CPU。
+
+### 踩的坑：压测工具自己出了四次问题
+
+这一阶段绝大部分时间花在这上面，而不是被测系统。按发现顺序：
+
+1. **`subprocess` 解码崩溃。** 默认用系统 locale（GBK）解码子进程输出，
+   Locust 打印的中文直接 `UnicodeDecodeError`。与 `requirements.txt`、`alembic.ini`、
+   `pytest.ini` 是同一个根因——**凡是被工具按 locale 读写的文本，都要显式指定编码**。
+
+2. **第二轮起卡死十几分钟。** `proc.terminate()` 在 Windows 上只杀 uvicorn 父进程，
+   spawn 出来的 worker 全部存活。后果不只是浪费资源：这些残留连接握着 `lottery_db`
+   的元数据锁，下一轮的 `DROP DATABASE` 被无限期阻塞（实测 `Waiting for table
+   metadata lock` 等了 649 秒）。改用 `taskkill /F /T` 杀进程树。
+
+3. **8030 端口上的"幽灵监听"。** 一个已不存在的 PID 仍在该端口返回合法的
+   `{"status":"ok"}`，`taskkill` 报"进程不存在"，`wmic` 里也查不到——大概率属于
+   另一个 Windows 账户（和本仓库 `.git` 归属 `CodexSandboxOffline` 是同类问题）。
+   它抢先应答健康检查，让编排脚本误以为自己的服务已就绪，实际请求打到了连着旧库的
+   进程上，表现为建活动时莫名其妙的 500。改成**每次动态挑一个确认无人应答的端口**。
+
+4. **失败时日志被收尾清理删掉。** `shutil.rmtree(tmp)` 把最需要看的服务端日志一起
+   删了。改为写到 tmp 之外，并支持只跑单个场景，排查不用每次等 5 分钟。
+
+### 方法上的教训
+
+第 3 个坑之前，我对症状的判断是"启动顺序错了：先起服务再 drop 库"。这个推理本身
+成立（顺序确实该改），但**我没有验证就直接改了，结果症状照旧**。
+
+前两个坑我都拿到了确凿证据才动手——`UnicodeDecodeError` 的完整堆栈、
+`Waiting for table metadata lock` 的 649 秒。第三个我跳过了取证。
+
+教训不是"要小心"，而是具体的：**改之前先让证据把假设钉死**。这里本该做的一步很简单——
+在启动自己的服务之前先探一下端口，如果已经有人应答，问题立刻就暴露了。
+
+**压测得出的数字，可信度取决于压测工具本身是否正确。** 如果没查根因，"卡住"很容易
+被误读成服务端性能问题，然后去优化一个根本没问题的地方。
