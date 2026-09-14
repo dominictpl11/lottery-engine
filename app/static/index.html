@@ -3,71 +3,77 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lottery Engine · 演示</title>
+<title>春节抽奖 · Lottery Engine</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+
 <header>
-  <h1>Lottery Engine</h1>
-  <p class="sub">并发安全的营销抽奖服务</p>
+  <h1 id="activity-name">幸运大转盘</h1>
+  <p class="sub" id="activity-sub">加载中…</p>
+  <div class="marquee"><div class="marquee-track" id="marquee"></div></div>
 </header>
 
 <main>
-  <section class="panel hero">
-    <div class="wheel-wrap">
+  <div class="stage">
+    <div class="wheel-frame">
+      <div class="lights" id="lights"></div>
       <div class="pointer"></div>
-      <canvas id="wheel" width="360" height="360"></canvas>
-      <button id="spin-btn" class="spin">抽奖</button>
+      <canvas id="wheel" width="300" height="300"></canvas>
+      <button id="spin-btn" class="spin">
+        <span>抽奖</span>
+        <em id="spin-note">立即抽</em>
+      </button>
     </div>
+    <p class="hint" id="stage-hint">今日还可抽 <b id="left-count">–</b> 次</p>
+  </div>
 
-    <div class="hero-side">
-      <div id="activity-info" class="muted">加载中…</div>
-
-      <div class="row">
-        <label>用户 ID</label>
-        <input id="user-id" value="demo_user">
-        <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换一个</button>
-      </div>
-
-      <div id="draw-result" class="result">
-        <span class="muted">点中间的按钮开始</span>
-      </div>
-
-      <table id="award-table">
-        <thead><tr><th>奖品</th><th>概率</th><th>剩余</th></tr></thead>
-        <tbody></tbody>
-      </table>
-
-      <details class="raw">
-        <summary>请求 / 响应原文</summary>
-        <pre id="draw-raw"></pre>
-      </details>
-    </div>
+  <section class="card">
+    <h2>奖品一览</h2>
+    <div class="prizes" id="prizes"></div>
   </section>
 
-  <section class="panel">
-    <h2>并发测试</h2>
+  <section class="card">
+    <h2>开发者面板</h2>
     <p class="muted">
       转盘只能证明接口调得通。这一栏用来<strong>当场证伪</strong>这个项目的核心主张：
-      同时打出 N 个请求，跑完直接对账——产生的订单数是否等于消耗的库存、
-      库存有没有被扣成负数。
+      同时打出 N 个请求，跑完直接对账——产生的订单数是否等于消耗的库存、库存有没有被扣成负数。
     </p>
+    <div class="row">
+      <label>用户 ID</label>
+      <input id="user-id" value="demo_user">
+      <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换一个</button>
+    </div>
     <div class="row">
       <label>并发数</label>
       <input id="burst-n" type="number" value="100" min="1" max="500">
-      <label class="cb"><input type="checkbox" id="burst-same-user"> 全部用同一个用户</label>
-      <label class="cb"><input type="checkbox" id="burst-same-req"> 全部用同一个 request_id</label>
+      <label class="cb"><input type="checkbox" id="burst-same-user"> 同一用户</label>
+      <label class="cb"><input type="checkbox" id="burst-same-req"> 同一 request_id</label>
+      <button id="burst-btn" class="primary">开始并发测试</button>
     </div>
-    <button id="burst-btn" class="primary">开始</button>
     <div id="burst-result"></div>
+    <details class="raw">
+      <summary>上一次抽奖的请求 / 响应原文</summary>
+      <pre id="draw-raw">（还没抽过）</pre>
+    </details>
   </section>
 </main>
 
 <footer>
   <a href="/docs">Swagger</a> ·
   <a href="https://github.com/dominictpl11/lottery-engine">GitHub</a> ·
-  <span class="muted">活动 ID <code>100001</code></span>
+  活动 ID <code>100001</code>
 </footer>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" id="modal-card">
+    <div class="icon" id="modal-icon">🎉</div>
+    <h3 id="modal-title">恭喜获得</h3>
+    <div class="prize-name" id="modal-prize"></div>
+    <div class="note" id="modal-note"></div>
+    <button id="modal-close">开心收下</button>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>
