@@ -70,6 +70,7 @@ lottery-engine/
 | --- | --- |
 | [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) | **规划**：项目定位、技术栈、架构原则、Phase 排期、停止线 |
 | [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) | **需求规格**：功能需求、数据模型 DDL、API 契约、验收标准、已知缺陷 |
+| [`DEVLOG.md`](DEVLOG.md) | **开发日志**：每阶段的关键决策、放弃的方案、踩过的坑、实测证据 |
 | [`docs/db-explain.md`](docs/db-explain.md) | 索引验证：3 条主查询的 `EXPLAIN` 结果 |
 
 冲突时以 `docs/PROJECT_PLAN.md` 为准。
@@ -132,6 +133,15 @@ RocketMQ、Dubbo）。自 2026-09-14 起**冻结**：不删除、不维护、不
 - 密码只放 `.env`，`.env.example` 里只放本地占位值。
 - schema 只能通过 Alembic 迁移变更，不用 `create_all`。
 - 阶段进度写进 `docs/REQUIREMENTS.md` 的验收清单，不在根目录堆临时 Markdown。
+- **每完成一个 Phase，在 [`DEVLOG.md`](DEVLOG.md) 追加一节，与代码同一次提交**
+  （格式见 [`docs/REQUIREMENTS.md` §10](docs/REQUIREMENTS.md)）。事后补写的决策记录必然失真。
+  首次 clone 后执行一次，启用提交检查：
+
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+
+  之后提交信息含 `phase-N` 但未改动 `DEVLOG.md` 时会被拒绝。
 - **`requirements.txt` 与 `alembic.ini` 必须保持纯 ASCII。** pip 和 Alembic 都用系统 locale
   （本机是 GBK）解码这两个文件，中文注释会直接导致 `UnicodeDecodeError` 起不来。
   这个坑踩过两次，注释统一写英文。
