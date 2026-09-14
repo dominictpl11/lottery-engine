@@ -148,7 +148,37 @@ def test_list_awards_missing_activity_returns_404(client):
     assert client.get("/api/activities/99999999/awards").status_code == 404
 
 
-def test_demo_page_is_served(client):
+def test_user_page_is_served(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "Lottery Engine" in r.text
+    assert "lottery" in r.text.lower()
+
+
+def test_user_page_does_not_leak_win_rate(client):
+    """面向用户的页面不得暴露中奖概率。
+
+    九宫格里每个奖品占的格子数是平均的，奖品卡也不标概率——
+    如果哪天有人往用户页加回概率角标，这条会挡住。
+    """
+    html = client.get("/").text
+    js = client.get("/static/app.js").text
+    # 去掉注释再看——注释里解释"为什么不展示中奖率"是应该的，
+    # 真正会泄露的是渲染出来的内容，以及用于渲染它的代码。
+    code = chr(10).join(
+        ln for ln in js.split(chr(10)) if not ln.strip().startswith(("//", "*", "/*"))
+    )
+
+    assert 'class="rate"' not in html and 'class="rate"' not in code
+    assert "weight" not in code, "用户页不应拿 weight 做任何渲染"
+    assert "%" not in html
+
+
+def test_dev_page_is_served(client):
+    r = client.get("/dev")
+    assert r.status_code == 200
+    assert "开发者" in r.text
+
+
+def test_dev_page_shows_win_rate(client):
+    """开发者页反过来必须摊开真实权重。"""
+    assert "中奖率" in client.get("/dev").text

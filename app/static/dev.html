@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>开发者页 · Lottery Engine</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="dev">
+
+<header>
+  <h1>开发者页</h1>
+  <p class="sub">用户看到的是 <a href="/">抽奖页</a>；这里放的是它背后的真实数据与并发验证</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>活动配置</h2>
+    <div id="activity-info" class="muted">加载中…</div>
+    <table id="award-table">
+      <thead><tr><th>奖品</th><th>类型</th><th>权重</th><th>中奖率</th><th>剩余 / 总量</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted" style="margin-top:10px">
+      中奖率只是 <code>weight</code> 的归一化结果，不是另一份配置。
+      用户页刻意不展示这一列——九宫格里每个奖品占的格子数是平均的，
+      奖品卡也不标概率，界面不泄露任何可用来反推中奖率的信息。
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>单次抽奖</h2>
+    <div class="row">
+      <label>用户 ID</label>
+      <input id="user-id" value="dev_user">
+      <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换一个</button>
+      <button id="draw-btn" class="primary">发一次请求</button>
+    </div>
+    <pre id="draw-raw">（还没发过）</pre>
+  </section>
+
+  <section class="card">
+    <h2>并发测试</h2>
+    <p class="muted">
+      同时打出 N 个请求，跑完直接对账：<strong>产生的订单数是否等于消耗的库存</strong>、
+      <strong>库存有没有被扣成负数</strong>。这是这个项目的核心主张，可以在这里当场证伪。
+    </p>
+    <div class="row">
+      <label>并发数</label>
+      <input id="burst-n" type="number" value="100" min="1" max="500">
+      <label class="cb"><input type="checkbox" id="burst-same-user"> 同一用户</label>
+      <label class="cb"><input type="checkbox" id="burst-same-req"> 同一 request_id</label>
+      <button id="burst-btn" class="primary">开始</button>
+    </div>
+    <div id="burst-result"></div>
+  </section>
+</main>
+
+<footer>
+  <a href="/">抽奖页</a> ·
+  <a href="/docs">Swagger</a> ·
+  <a href="https://github.com/dominictpl11/lottery-engine">GitHub</a> ·
+  活动 ID <code>100001</code>
+</footer>
+
+<script src="/static/common.js"></script>
+<script src="/static/dev.js"></script>
+</body>
+</html>

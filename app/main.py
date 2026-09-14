@@ -56,7 +56,13 @@ def create_app() -> FastAPI:
 
         @app.get("/", include_in_schema=False)
         async def demo_page():
+            """面向用户的抽奖页。刻意不暴露中奖概率。"""
             return FileResponse(static_dir / "index.html")
+
+        @app.get("/dev", include_in_schema=False)
+        async def dev_page():
+            """开发者页：真实权重、并发验证、请求响应原文。"""
+            return FileResponse(static_dir / "dev.html")
 
     # 领域异常在这里统一映射为 HTTP，应用层与领域层不依赖 FastAPI（§5.2）。
     @app.exception_handler(ActivityNotFoundError)

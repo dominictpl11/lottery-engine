@@ -28,36 +28,11 @@
     <div class="prizes" id="prizes"></div>
   </section>
 
-  <section class="card">
-    <h2>开发者面板</h2>
-    <p class="muted">
-      九宫格只能证明接口调得通。这一栏用来<strong>当场证伪</strong>这个项目的核心主张：
-      同时打出 N 个请求，跑完直接对账——产生的订单数是否等于消耗的库存、库存有没有被扣成负数。
-    </p>
-    <div class="row">
-      <label>用户 ID</label>
-      <input id="user-id" value="demo_user">
-      <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换一个</button>
-    </div>
-    <div class="row">
-      <label>并发数</label>
-      <input id="burst-n" type="number" value="100" min="1" max="500">
-      <label class="cb"><input type="checkbox" id="burst-same-user"> 同一用户</label>
-      <label class="cb"><input type="checkbox" id="burst-same-req"> 同一 request_id</label>
-      <button id="burst-btn" class="primary">开始并发测试</button>
-    </div>
-    <div id="burst-result"></div>
-    <details class="raw">
-      <summary>上一次抽奖的请求 / 响应原文</summary>
-      <pre id="draw-raw">（还没抽过）</pre>
-    </details>
-  </section>
 </main>
 
 <footer>
-  <a href="/docs">Swagger</a> ·
   <a href="https://github.com/dominictpl11/lottery-engine">GitHub</a> ·
-  活动 ID <code>100001</code>
+  <a href="/dev">开发者页</a>
 </footer>
 
 <div class="modal" id="modal" hidden>
@@ -70,6 +45,7 @@
   </div>
 </div>
 
+<script src="/static/common.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
