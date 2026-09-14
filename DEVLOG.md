@@ -388,7 +388,7 @@ Stress 档的失败全部是 503（容量信号），没有一个 500。
 
 ## Phase 5 · 容器化与交付
 
-`(待填)` · README 15 节 · [`docs/RESUME.md`](docs/RESUME.md)
+`9d1cb14` · README 15 节 · [`docs/RESUME.md`](docs/RESUME.md)
 
 ### 起点
 
