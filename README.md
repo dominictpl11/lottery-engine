@@ -105,27 +105,33 @@ lottery-engine/
 
 ## 当前进度
 
-Phase 0（基线修复）、Phase 1（MySQL 化 + 容器化）、Phase 2（Redis 并发控制）已完成。
+Phase 0–4 已完成：基线修复、MySQL 化、Redis 并发控制、pytest 测试体系、Locust 压测。
 
-**已具备**：
+**已实测的并发不变量**（`uvicorn --workers 4`，4 个独立进程）：
 
-| | |
+| 验证项 | 结果 |
 | --- | --- |
-| 存储 | MySQL 8.4，Alembic 迁移可从空库复现结构；唯一约束 / 外键 / CHECK 约束；索引按查询设计并用 `EXPLAIN` 验证 |
-| 并发 | Redis Lua 原子扣库存、ZSet 滑动窗口限流、`request_id` 幂等，全部跨进程生效 |
-| 事务 | 两处库存扣减与订单写入在同一事务；失败则回滚并按逆序归还 Redis 库存与当日配额 |
-| 业务 | 活动/奖品配置、加权抽奖、订单落库、频率限流（秒级防刷）、每日参与次数（日级配额） |
-| 运行 | `docker compose up -d` 起 MySQL + Redis |
+| 库存 100 / 并发 1000 | **恰好 100 次中奖，零超卖**；MySQL 与 Redis 库存均归零不为负 |
+| 同一 `request_id` 并发 40 次 | 库中**只有 1 条订单**，库存只扣 1 |
+| 同一用户 12 次并发 | 只放行 3 次（配置 10s/3 次）。进程内实现在 4 worker 下会放行 12 次 |
+| Redis 宕机 | 抽奖返回 **503**，不降级放行；恢复后无需重启 |
 
-**已实测的并发不变量**（4 个 uvicorn worker）：
+**压测结果**（完整报告见 [`docs/benchmark.md`](docs/benchmark.md)）：
 
-- 库存 100 / 800 并发 → **恰好 100 次中奖，零超卖**，MySQL 与 Redis 库存均归零不为负
-- 同一 `request_id` 并发 20 次 → 库中**只有 1 条订单**，库存只扣 1
-- 同一用户 12 次并发 → 只放行 3 次（配置 10s/3 次）。进程内实现在 4 worker 下会放行 12 次
-- Redis 宕机 → 抽奖返回 **503**，不降级放行；恢复后无需重启
+| 场景 | 并发 | RPS | P50 | P95 | 失败率 |
+| --- | --- | --- | --- | --- | --- |
+| Baseline | 50 | 90.9 | 220 ms | 1300 ms | 0.00% |
+| Medium | 200 | 146.4 | 1100 ms | 1800 ms | 0.00% |
+| Stress | 500 | 130.3 | 1400 ms | 9500 ms | 1.40% |
 
-**尚未完成**：pytest 测试体系（Phase 3）、Locust 压测报告（Phase 4）、API 容器化与
-交付文档（Phase 5）。可选的 Celery 异步发奖在 Phase 6。
+四档全部满足 `oversold = 0`、`duplicate order = 0`。Stress 档的失败全部是 503
+（容量信号），没有一个 500。
+
+> 服务端、MySQL、Redis、压测客户端全部跑在同一台笔记本上互相争抢 CPU。这些数字用于
+> 横向比较不同配置，不代表架构的性能上限。压测过程中定位并修复了一个真实瓶颈：
+> SQLAlchemy 连接池默认 5+10 在 200 并发下耗尽，详见 `docs/benchmark.md` 的瓶颈定位一节。
+
+**尚未完成**：API 容器化与交付文档（Phase 5）、可选的 Celery 异步发奖（Phase 6）。
 
 逐项验收标准见 [`docs/REQUIREMENTS.md` §8](docs/REQUIREMENTS.md)。
 
