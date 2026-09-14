@@ -3,3 +3,11 @@ uvicorn==0.32.1
 SQLAlchemy==2.0.36
 pydantic-settings==2.6.1
 redis==5.2.1
+
+# MySQL 驱动。PyMySQL 是纯 Python 实现，Windows 上无需编译；
+# cryptography 是 MySQL 8+ 默认的 caching_sha2_password 认证所必需。
+PyMySQL==1.1.1
+cryptography==44.0.0
+
+# 数据库迁移（REQUIREMENTS.md §8.2）
+alembic==1.14.0

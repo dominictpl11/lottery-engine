@@ -69,3 +69,7 @@ htmlcov/
 # Virtual machine crash logs
 hs_err_pid*
 
+
+# 本地环境变量与密钥（REQUIREMENTS.md NFR-5），不得提交
+.env
+.env.local

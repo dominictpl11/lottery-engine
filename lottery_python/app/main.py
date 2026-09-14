@@ -1,14 +1,14 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.database import Base, engine
-from app.core.exceptions import ActivityNotFoundError
+from app.core.exceptions import ActivityNotFoundError, DrawPersistenceError
 from app.interfaces.api.activity_controller import router as activity_router
 from app.interfaces.api.lottery_controller import router as lottery_router
 
 
 def create_app() -> FastAPI:
-    Base.metadata.create_all(bind=engine)
+    # 建表交给 Alembic（`alembic upgrade head`），不再用 create_all：
+    # 否则 schema 会有两个真源，迁移也无法复现结构（§8.2）。
 
     app = FastAPI(
         title="Lottery Engine Python",
@@ -23,6 +23,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(ActivityNotFoundError)
     async def handle_activity_not_found(_: Request, exc: ActivityNotFoundError):
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(DrawPersistenceError)
+    async def handle_draw_persistence(_: Request, exc: DrawPersistenceError):
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     return app
 
