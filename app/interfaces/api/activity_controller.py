@@ -28,6 +28,14 @@ def get_activity(activity_id: int, db: Session = Depends(get_db)):
     return activity
 
 
+@router.get("/{activity_id}/awards", response_model=list[AwardResponse])
+def list_awards(activity_id: int, db: Session = Depends(get_db)):
+    """列出活动下的全部奖品（含已抽空的），按权重从大到小。"""
+    if ActivityRepository(db).get_by_activity_id(activity_id) is None:
+        raise HTTPException(status_code=404, detail="活动不存在")
+    return AwardRepository(db).list_by_activity(activity_id)
+
+
 @router.post("/{activity_id}/awards", response_model=AwardResponse, status_code=201)
 def create_award(activity_id: int, req: AwardCreate, db: Session = Depends(get_db)):
     if ActivityRepository(db).get_by_activity_id(activity_id) is None:

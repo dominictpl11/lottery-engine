@@ -123,3 +123,32 @@ def test_non_positive_weight_returns_422(client, make_activity, new_id):
         "stock_total": 1, "weight": 0,
     })
     assert r.status_code == 422
+
+
+def test_list_awards(client, make_activity, make_award):
+    aid = make_activity()
+    wids = {make_award(aid, weight=10), make_award(aid, weight=30)}
+    r = client.get(f"/api/activities/{aid}/awards")
+    assert r.status_code == 200
+    body = r.json()
+    assert {w["award_id"] for w in body} == wids
+    assert [w["weight"] for w in body] == [30, 10], "应按权重从大到小"
+
+
+def test_list_awards_includes_sold_out(client, make_activity, make_award, draw, db):
+    """展示用的列表要含已抽空的奖品，抽奖链路用的那个才只返回有库存的。"""
+    aid = make_activity()
+    make_award(aid, stock_total=1)
+    draw(aid)
+    body = client.get(f"/api/activities/{aid}/awards").json()
+    assert len(body) == 1 and body[0]["stock_surplus"] == 0
+
+
+def test_list_awards_missing_activity_returns_404(client):
+    assert client.get("/api/activities/99999999/awards").status_code == 404
+
+
+def test_demo_page_is_served(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "Lottery Engine" in r.text

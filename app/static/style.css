@@ -1,0 +1,162 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #262b35;
+  --text: #e6e8ec;
+  --muted: #8b93a1;
+  --accent: #4f8cff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+header {
+  padding: 32px 24px 20px;
+  border-bottom: 1px solid var(--border);
+}
+header h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+header .sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+  display: grid;
+  gap: 20px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+.panel h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; }
+
+.muted { color: var(--muted); font-size: 14px; }
+code { font-family: var(--mono); font-size: 13px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.row label { color: var(--muted); font-size: 14px; }
+.row label.cb { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+input[type=text], input:not([type]), input[type=number] {
+  background: #0d0f13;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  width: 150px;
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #21262d;
+  color: var(--text);
+}
+button:hover:not(:disabled) { border-color: #3d444d; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+button.ghost { background: transparent; font-size: 13px; padding: 6px 12px; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; font-size: 13px; }
+td.num { font-family: var(--mono); }
+tr.sold-out td { opacity: 0.4; }
+
+.result {
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0d0f13;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.result.won { border-color: var(--ok); }
+.result.missed { border-color: var(--border); }
+.result.rejected { border-color: var(--warn); }
+.result.error { border-color: var(--bad); }
+.result .big { font-size: 18px; font-weight: 600; }
+
+.tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.tag.won { color: var(--ok); border-color: var(--ok); }
+.tag.missed { color: var(--muted); }
+.tag.rejected { color: var(--warn); border-color: var(--warn); }
+.tag.error { color: var(--bad); border-color: var(--bad); }
+
+.raw { margin-top: 12px; }
+.raw summary { color: var(--muted); font-size: 13px; cursor: pointer; }
+pre {
+  background: #0d0f13;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.verdict {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--ok);
+  background: rgba(63, 185, 80, 0.07);
+}
+.verdict.fail { border-color: var(--bad); background: rgba(248, 81, 73, 0.07); }
+.verdict h3 { margin: 0 0 8px; font-size: 14px; }
+.verdict ul { margin: 0; padding-left: 20px; }
+.verdict li { font-size: 14px; margin: 3px 0; }
+.verdict .pass { color: var(--ok); }
+.verdict .fail-mark { color: var(--bad); }
+
+footer {
+  border-top: 1px solid var(--border);
+  padding: 18px 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+footer a { color: var(--accent); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+
+@media (max-width: 600px) {
+  input { width: 120px; }
+  main { padding: 16px 12px 40px; }
+}

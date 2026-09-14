@@ -49,6 +49,19 @@ class AwardRepository:
     def get_by_award_id(self, award_id: int) -> Award | None:
         return self.db.scalar(select(Award).where(Award.award_id == award_id))
 
+    def list_by_activity(self, activity_id: int) -> list[Award]:
+        """活动下的全部奖品，含已抽空的。
+
+        与 list_available_by_activity 的区别：这个给展示用（要让人看到某个奖品
+        已经没了），抽奖链路用的是只返回有库存的那个。
+        """
+        stmt = (
+            select(Award)
+            .where(Award.activity_id == activity_id)
+            .order_by(Award.weight.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def list_available_by_activity(self, activity_id: int) -> list[Award]:
         stmt = (
             select(Award)

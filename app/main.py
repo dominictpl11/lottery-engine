@@ -1,10 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import redis as redis_lib
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import TimeoutError as SATimeoutError
-from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
     ActivityNotFoundError,
@@ -44,6 +46,17 @@ def create_app() -> FastAPI:
 
     app.include_router(activity_router, prefix="/api")
     app.include_router(lottery_router, prefix="/api")
+
+    # 演示页。一个静态 HTML，由 API 自己托管——不引入前端框架和构建工具，
+    # 保持单体（PROJECT_PLAN 5.1）。它的作用是让并发特性可以被当场点出来，
+    # 而不是给一个好看的转盘。
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/", include_in_schema=False)
+        async def demo_page():
+            return FileResponse(static_dir / "index.html")
 
     # 领域异常在这里统一映射为 HTTP，应用层与领域层不依赖 FastAPI（§5.2）。
     @app.exception_handler(ActivityNotFoundError)
