@@ -1306,20 +1306,21 @@ Basic draw works
 - 硕士申请；
 - AI / 算法实习准备。
 
-停止线：
+停止线：**11 / 12 已达成（2026-09-14）**，最后一条由本人自评。
 
-- [ ] Python/FastAPI 主链路稳定；
-- [ ] MySQL 正式使用；
-- [ ] Redis + Lua 原子库存完成；
-- [ ] Redis 限流完成；
-- [ ] request_id 幂等完成；
-- [ ] 关键 MySQL constraint / index 完成；
-- [ ] pytest 核心测试完成；
-- [ ] Locust benchmark 完成；
-- [ ] Docker Compose 可启动；
-- [ ] README 有架构图；
-- [ ] README 有真实 Benchmark；
-- [ ] 自己能解释系统完整链路。
+
+- [x] Python/FastAPI 主链路稳定 —— 76 个 pytest 用例全过；
+- [x] MySQL 正式使用 —— MySQL 8.4 + Alembic 迁移；
+- [x] Redis + Lua 原子库存完成 —— 并发 1000 / 库存 100 -> 恰好 100 次中奖；
+- [x] Redis 限流完成 —— ZSet 滑动窗口，4 worker 下同用户 12 次并发只放行 3 次；
+- [x] request_id 幂等完成 —— 40 线程同 request_id -> 库中仅 1 条订单；
+- [x] 关键 MySQL constraint / index 完成 —— 3 条主查询 EXPLAIN 全部命中；
+- [x] pytest 核心测试完成 —— unit 16 / integration 53 / concurrency 7；
+- [x] Locust benchmark 完成 —— docs/benchmark.md，四档 oversold=0；
+- [x] Docker Compose 可启动 —— 空卷起栈已验证，迁移自动执行；
+- [x] README 有架构图 —— §3；
+- [x] README 有真实 Benchmark —— §12；
+- [ ] 自己能解释系统完整链路 —— 这条只能自评。逐题对照见 [`docs/RESUME.md`](RESUME.md) 末尾的「面试时要能答出来的」，每个问题都标了对应的文档落点。
 
 完成以后：
 
