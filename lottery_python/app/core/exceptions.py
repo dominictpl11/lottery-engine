@@ -19,3 +19,11 @@ class ActivityNotFoundError(LotteryError):
     def __init__(self, activity_id: int):
         self.activity_id = activity_id
         super().__init__(f"活动不存在: {activity_id}")
+
+
+class DrawPersistenceError(LotteryError):
+    """抽奖结果写库失败。
+
+    此时活动库存与当日配额已被占用，调用方必须先补偿再抛出（§4.6 的失败点表）。
+    映射为 HTTP 500：这是系统错误，不是业务拒绝，应当计入压测失败率（§7.2）。
+    """

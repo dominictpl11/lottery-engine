@@ -138,8 +138,8 @@ CREATE TABLE activity (
     stock_total   INT          NOT NULL,
     stock_surplus INT          NOT NULL,
     daily_limit   INT          NOT NULL DEFAULT 3     COMMENT '每人每自然日参与次数上限',
-    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at    DATETIME     NOT NULL              COMMENT 'UTC，由应用写入',
+    updated_at    DATETIME     NOT NULL              COMMENT 'UTC，由应用写入',
     PRIMARY KEY (id),
     UNIQUE KEY uk_activity_id (activity_id),
     CONSTRAINT ck_activity_stock CHECK (stock_surplus >= 0 AND stock_surplus <= stock_total),
@@ -157,8 +157,8 @@ CREATE TABLE award (
     weight        INT          NOT NULL,
     stock_total   INT          NOT NULL,
     stock_surplus INT          NOT NULL,
-    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at    DATETIME     NOT NULL              COMMENT 'UTC，由应用写入',
+    updated_at    DATETIME     NOT NULL              COMMENT 'UTC，由应用写入',
     PRIMARY KEY (id),
     UNIQUE KEY uk_award_id (award_id),
     KEY idx_activity_id (activity_id),
@@ -178,14 +178,18 @@ CREATE TABLE draw_order (
     draw_state  VARCHAR(16)  NOT NULL              COMMENT 'won/missed/rejected',
     award_state VARCHAR(16)  NOT NULL              COMMENT 'pending/sent/failed/none',
     message     VARCHAR(255)     NULL,
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at  DATETIME     NOT NULL              COMMENT 'UTC，由应用写入',
+    updated_at  DATETIME     NOT NULL              COMMENT 'UTC，由应用写入',
     PRIMARY KEY (id),
     UNIQUE KEY uk_order_id (order_id),
     UNIQUE KEY uk_request_id (request_id),
     KEY idx_user_activity_created (user_id, activity_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
+
+时间戳由**应用**写入而非 `DEFAULT CURRENT_TIMESTAMP`：后者取 MySQL 服务器时区，
+会让"库里都是 UTC"这条约定依赖部署环境。compose 里另外把 MySQL 钉成
+`--default-time-zone=+00:00`，让手工 SQL 也落在同一口径上。
 
 ### 4.3 索引论证
 
@@ -343,9 +347,9 @@ COMMIT
 | --- | --- | --- | --- |
 | GET | `/api/health` | 健康检查 | 已实现 |
 | POST | `/api/activities` | 创建活动 | 已实现 |
-| GET | `/api/activities/{activity_id}` | 查询活动配置 | **待实现** |
+| GET | `/api/activities/{activity_id}` | 查询活动配置 | 已实现 |
 | POST | `/api/activities/{activity_id}/awards` | 配置奖品 | 已实现 |
-| POST | `/api/lottery/draw` | 执行抽奖 | 已实现，契约需升级（缺 `request_id`） |
+| POST | `/api/lottery/draw` | 执行抽奖 | 已实现；`request_id` 当前由服务端生成，Phase 2 改为客户端提供 |
 
 ### 6.2 POST /api/lottery/draw
 
@@ -366,23 +370,30 @@ COMMIT
 ```json
 {
   "success": true,
-  "order_id": "202609140001",
+  "order_id": "1efca692bf94416898857ff0b23b42aa",
+  "user_id": "user_001",
+  "activity_id": 100001,
   "draw_state": "won",
-  "award": {
-    "award_id": 101,
-    "award_name": "100元优惠券"
-  }
+  "award_state": "pending",
+  "award": { "award_id": 101, "award_name": "100元优惠券" },
+  "message": "中奖",
+  "reject_reason": null
 }
 ```
 
-未中奖响应（200）：
+未中奖响应（200）—— 抽中 `award_type = none` 的"谢谢参与"：
 
 ```json
 {
   "success": true,
-  "order_id": "202609140002",
+  "order_id": "9e063e0bfe0142a88dee114642435cd8",
+  "user_id": "user_001",
+  "activity_id": 100001,
   "draw_state": "missed",
-  "award": null
+  "award_state": "none",
+  "award": null,
+  "message": "未中奖",
+  "reject_reason": null
 }
 ```
 
@@ -391,10 +402,14 @@ COMMIT
 ```json
 {
   "success": false,
-  "order_id": "202609140003",
+  "order_id": "3a5b3cef50974e96a2baf7ebf5cdf06f",
+  "user_id": "user_001",
+  "activity_id": 100001,
   "draw_state": "rejected",
+  "award_state": "none",
   "award": null,
-  "reject_reason": "activity_stock_exhausted"
+  "message": "奖品已被抽完",
+  "reject_reason": "award_stock_exhausted"
 }
 ```
 
@@ -490,12 +505,12 @@ COMMIT
 
 > **相对 v2 的调整**：把 Docker Compose 从 Phase 5 提前到这里。Phase 3 的集成/并发测试与 Phase 4 的 Locust 都依赖稳定可复现的 MySQL + Redis；手工起服务会导致 Phase 3–4 反复返工。Phase 5 只保留 API 容器化与 README。
 
-- [ ] SQLite → MySQL 8，按 §4.2 DDL 重建 schema（含 §4.1 的字段改名）
-- [ ] Alembic 建立，migration 可从空库复现完整结构
-- [ ] `docker-compose.yml` 提供 MySQL + Redis，`.env.example` 就位
-- [ ] 服务重启后数据仍在
-- [ ] 按 §4.6 落定事务边界，订单写入与库存兜底扣减在同一事务内
-- [ ] 对 §4.3 中至少 1–2 条主要查询执行 `EXPLAIN`，确认命中索引、无全表扫描，结果留档备写入 README
+- [x] SQLite → MySQL 8，按 §4.2 DDL 重建 schema（含 §4.1 的字段改名）
+- [x] Alembic 建立，migration 可从空库复现完整结构
+- [x] `docker-compose.yml` 提供 MySQL + Redis，`.env.example` 就位
+- [x] 服务重启后数据仍在
+- [x] 按 §4.6 落定事务边界，订单写入与库存兜底扣减在同一事务内
+- [x] 对 §4.3 中至少 1–2 条主要查询执行 `EXPLAIN`，确认命中索引、无全表扫描 —— 3 条查询全部命中，结果见 [`docs/db-explain.md`](../docs/db-explain.md)
 
 ### 8.3 Phase 2：Redis 并发控制（预计 4–7 天）
 
@@ -556,7 +571,7 @@ Celery + Redis 异步发奖；GitHub Actions。若进入本阶段，需补建 `d
 附带的语义问题：
 
 - ✅ 已随 Phase 0 修复：`success` 字段曾把"奖品库存不足"也返回 `True`，现按 §6.3 统一为「中奖/未中奖 → `true`，业务拒绝 → `false`」，并新增 `reject_reason`（§6.5）。
-- ⬜ 留到 Phase 1：抽中"谢谢参与"应记为 `missed` 而非中奖（FR-3）。当前 `AwardType` 仍是 `text/coupon/physical`，需随 §4.1 的枚举改名（`text` → `none`）一并处理，因此 `missed` 状态目前尚未被任何路径产生。
+- ✅ 已随 Phase 1 修复：抽中"谢谢参与"（`award_type = none`）现记为 `missed` 而非中奖（FR-3），`AwardType` 已改名为 `coupon/physical/virtual/none`。
 
 ### 9.2 Java 版（不修，仅记录）
 

@@ -15,23 +15,24 @@ class ActivityService:
             name=req.name,
             description=req.description,
             # 入参带时区，落库统一转成 naive UTC（§4.4）。
-            begin_time=to_db(req.begin_time),
+            start_time=to_db(req.start_time),
             end_time=to_db(req.end_time),
-            stock_count=req.stock_count,
-            stock_surplus_count=req.stock_count,
+            stock_total=req.stock_total,
+            stock_surplus=req.stock_total,
             daily_limit=req.daily_limit,
-            state=req.state.value,
+            status=req.status.value,
         )
         return self.activity_repo.create(activity)
 
     def create_award(self, activity_id: int, req: AwardCreate) -> Award:
         award = Award(
+            award_id=req.award_id,
             activity_id=activity_id,
             name=req.name,
             award_type=req.award_type.value,
             content=req.content,
-            stock_count=req.stock_count,
-            stock_surplus_count=req.stock_count,
+            stock_total=req.stock_total,
+            stock_surplus=req.stock_total,
             weight=req.weight,
         )
         return self.award_repo.create(award)

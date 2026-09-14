@@ -17,6 +17,7 @@ def health():
 @router.post("/lottery/draw", response_model=DrawResponse)
 def draw(req: DrawRequest, db: Session = Depends(get_db)):
     process = LotteryProcess(
+        db,
         ActivityRepository(db),
         AwardRepository(db),
         DrawOrderRepository(db),

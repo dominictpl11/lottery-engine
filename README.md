@@ -6,7 +6,7 @@
 
 | 实现 | 状态 | 技术栈 | 端口 | 入口 |
 | --- | --- | --- | --- | --- |
-| Python 版 | **主线（Active）** | FastAPI、SQLAlchemy、MySQL、Redis | 8000 | [`lottery_python/`](lottery_python/) |
+| Python 版 | **主线（Active）** | FastAPI、SQLAlchemy、MySQL 8.4、Alembic、Docker Compose | 8000 | [`lottery_python/`](lottery_python/) |
 | Java 版 | **Legacy / Reference（冻结）** | Spring Boot、MyBatis、MySQL、Redis、RocketMQ、Dubbo | 8080 | [`src/`](src/) |
 
 ## 文档入口
@@ -16,6 +16,7 @@
 | [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) | **规划文档**：项目定位、技术栈、架构原则、Phase 排期、停止线 |
 | [`lottery_python/REQUIREMENTS.md`](lottery_python/REQUIREMENTS.md) | **需求规格**：功能需求、数据模型 DDL、API 契约、验收标准、已知缺陷 |
 | [`lottery_python/README.md`](lottery_python/README.md) | Python 版启动说明与当前能力 |
+| [`docs/db-explain.md`](docs/db-explain.md) | 索引验证：3 条主查询的 `EXPLAIN` 结果 |
 | [`docs/java-quickstart.md`](docs/java-quickstart.md) | Java 版历史启动指南（已冻结，见下方说明） |
 
 有冲突时以 `docs/PROJECT_PLAN.md` 为准。
@@ -35,13 +36,23 @@ lottery_engine/
 
 ## Python 版（主线）
 
-默认 SQLite 本地启动，Phase 1 起迁移到 MySQL。启动说明见
-[`lottery_python/README.md`](lottery_python/README.md)。
+已完成 Phase 1：MySQL 8.4 + Alembic 迁移 + Docker Compose。
 
-启动后入口：
+```bash
+cd lottery_python
+cp .env.example .env
+docker compose up -d                        # MySQL + Redis
+python -m alembic upgrade head              # 建表
+python -m uvicorn app.main:app --port 8000
+```
+
+完整说明见 [`lottery_python/README.md`](lottery_python/README.md)。启动后入口：
 
 - 健康检查：`http://127.0.0.1:8000/api/health`
 - Swagger：`http://127.0.0.1:8000/docs`
+
+当前进度与剩余缺陷见 [`lottery_python/REQUIREMENTS.md` §8](lottery_python/REQUIREMENTS.md)
+的 Phase 清单。下一步是 Phase 2（Redis 原子库存、分布式限流、请求幂等）。
 
 ## Java 版（Legacy / Reference）
 
