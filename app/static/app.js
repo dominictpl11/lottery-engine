@@ -2,6 +2,8 @@ const ACTIVITY_ID = 100001;
 
 const $ = (id) => document.getElementById(id);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SPIN_MS = 4200;
 
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -20,14 +22,14 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+// 奖品类型到图标。纯展示用，后端不关心。
+const EMOJI = { physical: "📱", coupon: "🎟️", virtual: "💎", none: "🙏" };
+
 // ---------- 转盘 ----------
 
-const SEG_COLORS = ["#4f8cff", "#8957e5", "#3fb950", "#d29922", "#db6d28", "#1f6feb", "#a371f7"];
-const MUTED_COLOR = "#2d333b";
-
-let awards = [];      // 后端返回的奖品，顺序即转盘扇区顺序
-let segments = [];    // { award, start, end, mid }  角度制，0 = 3 点钟方向，顺时针
-let rotation = 0;     // 转盘当前累计旋转角度（只增不减，保证永远正向转）
+let awards = [];
+let segments = [];
+let rotation = 0;   // 累计旋转角，只增不减，保证永远正向转
 
 function buildSegments(list) {
   const total = list.reduce((s, w) => s + w.weight, 0) || 1;
@@ -43,15 +45,15 @@ function buildSegments(list) {
 function drawWheel() {
   const canvas = $("wheel");
   const dpr = window.devicePixelRatio || 1;
-  const size = canvas.clientWidth || 360;
+  const size = canvas.clientWidth || 300;
   canvas.width = size * dpr;
   canvas.height = size * dpr;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, size, size);
 
-  const cx = size / 2, cy = size / 2, r = size / 2 - 4;
-  const rad = (deg) => (deg * Math.PI) / 180;
+  const cx = size / 2, cy = size / 2, r = size / 2;
+  const rad = (d) => (d * Math.PI) / 180;
 
   segments.forEach((seg, i) => {
     const soldOut = seg.award.stock_surplus === 0;
@@ -59,60 +61,116 @@ function drawWheel() {
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, rad(seg.start), rad(seg.end));
     ctx.closePath();
-    ctx.fillStyle = soldOut ? MUTED_COLOR
-      : seg.award.award_type === "none" ? "#30363d"
-      : SEG_COLORS[i % SEG_COLORS.length];
+    // 红金交替，是国内抽奖转盘的通用视觉语言
+    ctx.fillStyle = soldOut ? "#e6e0d8" : (i % 2 === 0 ? "#fff6dc" : "#ffe2ae");
     ctx.fill();
-    ctx.strokeStyle = "#0d0f13";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(245,166,35,.55)";
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // 扇区文字：沿半径方向排布
+    // 文字沿半径方向排，但**居中于扇区**而不是贴边——大扇区（"谢谢参与" 占 70%）
+    // 贴边会把字挤到圆周上，几乎读不出来。
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(rad(seg.mid));
-    ctx.textAlign = "right";
+    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = soldOut ? "#6b7280" : "#fff";
     const span = seg.end - seg.start;
-    ctx.font = `${span < 18 ? 11 : 13}px system-ui, "Microsoft YaHei", sans-serif`;
+    const big = span >= 40;              // 大扇区给更大的字和更靠内的位置
+    const small = span < 16;
+    let tx = big ? r * 0.58 : r - 42;    // 文字中心离圆心的距离
+
+    // 扇区中心角落在 90°~270° 时，跟随旋转后的文字会上下颠倒。
+    // 再转 180° 并把文字放到反方向，就能始终保持正着读。
+    const mid = ((seg.mid % 360) + 360) % 360;
+    if (mid > 90 && mid < 270) {
+      ctx.rotate(Math.PI);
+      tx = -tx;
+    }
+
+    ctx.fillStyle = soldOut ? "#a79f94" : "#c0392b";
+    ctx.font = `700 ${small ? 10 : big ? 15 : 12.5}px system-ui, "Microsoft YaHei", sans-serif`;
     let name = seg.award.name;
-    const maxLen = span < 18 ? 5 : 8;
+    const maxLen = small ? 5 : 8;
     if (name.length > maxLen) name = name.slice(0, maxLen - 1) + "…";
-    ctx.fillText(name, r - 14, 0);
+    ctx.fillText(name, tx, big ? 11 : 0);
+
+    ctx.font = `${small ? 13 : big ? 24 : 16}px serif`;
+    ctx.fillText(EMOJI[seg.award.award_type] || "🎁", tx, big ? -14 : (small ? -13 : -16));
     ctx.restore();
   });
 }
 
+function buildLights() {
+  const box = $("lights");
+  const n = 18;
+  box.innerHTML = Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const x = 50 + 48.5 * Math.cos(a);
+    const y = 50 + 48.5 * Math.sin(a);
+    return `<i style="left:${x}%;top:${y}%;animation-delay:${(i % 6) * 0.18}s"></i>`;
+  }).join("");
+}
+
 /**
- * 把转盘转到指定奖品所在的扇区。
+ * 把转盘转到指定奖品所在扇区。
  *
- * 关键：结果由**后端**决定，前端只负责让指针停在对应扇区上——
- * 绝不能在前端随机再挑一个奖品，那样转盘和真实订单就对不上了。
+ * 结果由**后端**决定，前端只负责让指针停在对应扇区上——绝不能在前端再随机一次，
+ * 那样转盘显示的结果就和真实落库的订单对不上了。
  */
 function spinTo(awardId) {
   const seg = segments.find((s) => s.award.award_id === awardId);
   const canvas = $("wheel");
-  if (!seg) {           // 理论上不该发生；兜底转几圈就停
+  if (!seg) {
     rotation += 360 * 4;
     canvas.style.transform = `rotate(${rotation}deg)`;
     return;
   }
-  // 指针固定在正上方（270°）。扇区中心角 mid 旋转 R 后应落到 270°：
-  //     mid + R ≡ 270  (mod 360)
-  // 再叠加若干整圈，并在扇区内加一点随机偏移，避免每次都精确停在正中。
+  // 指针固定在正上方（270°）。扇区中心角 mid 旋转 R 后应落到 270°：mid + R ≡ 270
   const jitter = (Math.random() - 0.5) * (seg.end - seg.start) * 0.6;
   const target = 270 - (seg.mid + jitter);
   const turns = 5 + Math.floor(Math.random() * 2);
-  const next = rotation + turns * 360 + ((target - (rotation % 360)) % 360 + 360) % 360;
-  rotation = next;
+  rotation += turns * 360 + (((target - (rotation % 360)) % 360) + 360) % 360;
   canvas.style.transform = `rotate(${rotation}deg)`;
 }
 
-const SPIN_MS = 4000;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// ---------- 中奖播报 ----------
+// 只播真实发生过的抽奖（本页面这次会话里的），不编造。
+
+const feed = [];
+let feedIdx = 0;
+
+function pushFeed(userId, prizeName) {
+  const masked = userId.length > 6 ? userId.slice(0, 3) + "***" + userId.slice(-2) : userId + "***";
+  feed.push(`<b>${escapeHtml(masked)}</b> 抽中了 ${escapeHtml(prizeName)}`);
+  if (feed.length > 30) feed.shift();
+  renderFeed();
+}
+
+function renderFeed() {
+  const track = $("marquee");
+  if (!feed.length) {
+    track.innerHTML = `<div class="marquee-item">还没有人抽奖，来做第一个</div>`;
+    return;
+  }
+  const items = feed.slice(-8);
+  track.innerHTML = items.map((t) => `<div class="marquee-item">${t}</div>`).join("");
+  feedIdx = 0;
+  track.style.transform = "translateY(0)";
+}
+
+setInterval(() => {
+  const track = $("marquee");
+  const n = track.children.length;
+  if (n <= 1) return;
+  feedIdx = (feedIdx + 1) % n;
+  track.style.transform = `translateY(-${feedIdx * 30}px)`;
+}, 2600);
 
 // ---------- 活动与奖品 ----------
+
+let dailyLimit = 0;
+let usedToday = 0;   // 本会话内该用户已成功参与次数，仅用于界面提示
 
 async function loadActivity() {
   const [act, aw] = await Promise.all([
@@ -121,42 +179,57 @@ async function loadActivity() {
   ]);
 
   if (act.status === 404) {
-    $("activity-info").innerHTML =
-      `<span class="tag error">活动不存在</span> 需要先创建活动 ${ACTIVITY_ID}`;
+    $("activity-sub").textContent = `活动 ${ACTIVITY_ID} 不存在，需要先创建`;
     $("spin-btn").disabled = true;
     return;
   }
   const a = act.data;
-  $("activity-info").innerHTML =
-    `<strong>${escapeHtml(a.name)}</strong><br>` +
-    `<span class="muted">活动库存 <code>${a.stock_surplus} / ${a.stock_total}</code> · ` +
-    `每人每日 <code>${a.daily_limit}</code> 次 · ` +
-    `<span class="tag ${a.status === "running" ? "won" : "rejected"}">${a.status}</span></span>`;
+  dailyLimit = a.daily_limit;
+  $("activity-name").textContent = a.name;
+  $("activity-sub").innerHTML =
+    `剩余奖池 <b>${a.stock_surplus}</b> / ${a.stock_total} · 每人每日 ${a.daily_limit} 次`;
+  $("left-count").textContent = Math.max(dailyLimit - usedToday, 0);
 
   awards = aw.data || [];
   segments = buildSegments(awards);
   drawWheel();
 
   const total = awards.reduce((s, w) => s + w.weight, 0) || 1;
-  $("award-table").querySelector("tbody").innerHTML = awards
-    .map((w) => `
-      <tr class="${w.stock_surplus === 0 ? "sold-out" : ""}">
-        <td>${escapeHtml(w.name)}</td>
-        <td class="num">${((w.weight / total) * 100).toFixed(1)}%</td>
-        <td class="num">${w.stock_surplus} / ${w.stock_total}</td>
-      </tr>`)
-    .join("");
+  $("prizes").innerHTML = awards.map((w) => `
+    <div class="prize ${w.stock_surplus === 0 ? "sold-out" : ""}">
+      <div class="rate">${((w.weight / total) * 100).toFixed(1)}%</div>
+      <div class="emoji">${EMOJI[w.award_type] || "🎁"}</div>
+      <div class="name">${escapeHtml(w.name)}</div>
+      <div class="meta">剩 ${w.stock_surplus} / ${w.stock_total}</div>
+    </div>`).join("");
 }
 
-// ---------- 单次抽奖 ----------
+// ---------- 弹窗 ----------
 
-$("new-user").onclick = () => { $("user-id").value = "u_" + uuid().slice(0, 8); };
+function showModal({ icon, title, prize, note, variant, button }) {
+  $("modal-icon").textContent = icon;
+  $("modal-title").textContent = title;
+  $("modal-prize").textContent = prize || "";
+  $("modal-note").textContent = note || "";
+  $("modal-card").className = "modal-card" + (variant ? " " + variant : "");
+  $("modal-close").textContent = button || "知道了";
+  $("modal").hidden = false;
+}
+$("modal-close").onclick = () => { $("modal").hidden = true; };
+$("modal").onclick = (e) => { if (e.target === $("modal")) $("modal").hidden = true; };
+
+// ---------- 抽奖 ----------
+
+$("new-user").onclick = () => {
+  $("user-id").value = "u_" + uuid().slice(0, 8);
+  usedToday = 0;
+  $("left-count").textContent = dailyLimit;
+};
 
 $("spin-btn").onclick = async () => {
   const btn = $("spin-btn");
   btn.disabled = true;
-  $("draw-result").className = "result";
-  $("draw-result").innerHTML = `<span class="muted">抽奖中…</span>`;
+  $("spin-note").textContent = "抽奖中";
 
   const payload = {
     request_id: uuid(),
@@ -168,68 +241,72 @@ $("spin-btn").onclick = async () => {
     "POST /api/lottery/draw\n" + JSON.stringify(payload, null, 2) +
     `\n\n<- HTTP ${status}\n` + JSON.stringify(data, null, 2);
 
-  // 被拒绝（限流 / 配额 / 无库存）就不转——转完再说"你被限流了"很莫名其妙。
-  const rejected = status !== 200 || data.draw_state === "rejected";
-  if (rejected) {
-    renderDraw(status, data, true);
+  // 被拒绝就不转：转完 4 秒再说"你被限流了"很莫名其妙。
+  if (status !== 200 || data.draw_state === "rejected") {
+    showReject(status, data);
     btn.disabled = false;
+    $("spin-note").textContent = "立即抽";
     return;
   }
 
-  // 中奖和未中奖都会落在某个真实扇区上（"谢谢参与"也是一个奖品）。
-  spinTo(data.award ? data.award.award_id : awardIdOfMissed(data));
+  usedToday += 1;
+  $("left-count").textContent = Math.max(dailyLimit - usedToday, 0);
+
+  const won = data.draw_state === "won";
+  const landing = won ? data.award.award_id : idOfThanks();
+  spinTo(landing);
   await sleep(SPIN_MS);
-  renderDraw(status, data, false);
+
+  if (won) {
+    pushFeed(payload.user_id, data.award.award_name);
+    showModal({
+      icon: "🎉", title: "恭喜获得", prize: data.award.award_name,
+      note: `订单 ${data.order_id.slice(0, 12)}…`, button: "开心收下",
+    });
+  } else {
+    showModal({
+      icon: "🙏", title: "谢谢参与", prize: "下次再来试试",
+      note: `订单 ${data.order_id.slice(0, 12)}…`, variant: "miss", button: "再来一次",
+    });
+  }
+
   await loadActivity();
   btn.disabled = false;
+  $("spin-note").textContent = "立即抽";
 };
 
-/** missed 时后端不返回 award 对象，从订单里拿不到奖品 ID，退而求其次找"谢谢参与"扇区。 */
-function awardIdOfMissed(_data) {
+/** missed 时后端不返回 award 对象，落在"谢谢参与"扇区上。 */
+function idOfThanks() {
   const none = awards.find((w) => w.award_type === "none");
   return none ? none.award_id : (awards[0] && awards[0].award_id);
 }
 
-function renderDraw(status, d, shake) {
-  const box = $("draw-result");
-  const cls = (s) => { box.className = "result " + s + (shake ? " shake" : ""); };
+const REJECT_TEXT = {
+  rate_limited: ["⏳", "手速太快啦", "歇一会儿再来"],
+  daily_limit_exceeded: ["📅", "今日次数已用完", "明天再来"],
+  activity_stock_exhausted: ["📦", "奖池已空", "活动太火爆了"],
+  award_stock_exhausted: ["📦", "奖品被抢光了", "活动太火爆了"],
+  activity_not_running: ["🚧", "活动未开始", "请留意开始时间"],
+  activity_not_in_window: ["🕐", "不在活动时间内", "请留意活动时段"],
+};
 
-  if (status >= 500) {
-    cls("error");
-    box.innerHTML = `<span class="tag error">HTTP ${status}</span>
-      <span class="big">${escapeHtml((d && d.detail) || "系统错误")}</span>`;
-    return;
+function showReject(status, d) {
+  if (status === 409) {
+    return showModal({ icon: "⏱️", title: "请勿重复提交", prize: "上一次还在处理中",
+                       variant: "reject" });
   }
   if (status === 404) {
-    cls("error");
-    box.innerHTML = `<span class="tag error">404</span><span class="big">活动不存在</span>`;
-    return;
+    return showModal({ icon: "❓", title: "活动不存在", variant: "reject" });
   }
-  if (status === 409) {
-    cls("rejected");
-    box.innerHTML = `<span class="tag rejected">409</span>
-      <span class="big">同一 request_id 正在处理中</span>`;
-    return;
+  if (status >= 500) {
+    return showModal({ icon: "⚠️", title: status === 503 ? "服务繁忙" : "系统错误",
+                       prize: (d && d.detail) || "", variant: "reject" });
   }
-
-  const state = d.draw_state;
-  cls(state);
-  if (state === "won") {
-    box.innerHTML = `<span class="tag won">won</span>
-      <span class="big">🎉 ${escapeHtml(d.award.award_name)}</span>
-      <span class="muted">order <code>${d.order_id.slice(0, 10)}…</code></span>`;
-  } else if (state === "missed") {
-    box.innerHTML = `<span class="tag missed">missed</span>
-      <span class="big">谢谢参与</span>
-      <span class="muted">order <code>${d.order_id.slice(0, 10)}…</code></span>`;
-  } else {
-    box.innerHTML = `<span class="tag rejected">rejected</span>
-      <span class="big">${escapeHtml(d.message)}</span>
-      <code>${d.reject_reason}</code>`;
-  }
+  const [icon, title, note] = REJECT_TEXT[d.reject_reason] || ["😅", d.message, ""];
+  showModal({ icon, title, prize: note, note: d.reject_reason, variant: "reject" });
 }
 
-// ---------- 并发测试 ----------
+// ---------- 并发测试（开发者面板） ----------
 
 $("burst-btn").onclick = async () => {
   const btn = $("burst-btn");
@@ -308,4 +385,6 @@ function renderBurst(results, before, after, elapsed, n, sameReq) {
     </div>`;
 }
 
+buildLights();
+renderFeed();
 loadActivity();
