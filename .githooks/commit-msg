@@ -1,0 +1,28 @@
+#!/bin/sh
+# 提交信息含 phase-N 时，要求 DEVLOG.md 一同改动。
+# 理由见 docs/REQUIREMENTS.md §10：事后补写的开发日志必然失真。
+#
+# 启用：git config core.hooksPath .githooks
+#
+# 用 commit-msg 而不是 pre-commit：pre-commit 阶段 COMMIT_EDITMSG 尚未写入，
+# 读到的是上一次提交的信息。commit-msg 的 $1 才是本次的信息文件。
+
+msg_file="$1"
+[ -f "$msg_file" ] || exit 0
+
+# 注释行不算数（模板里可能出现 phase 字样）
+if ! grep -v '^#' "$msg_file" | grep -qE 'phase-[0-9]'; then
+    exit 0
+fi
+
+if git diff --cached --name-only | grep -qx 'DEVLOG.md'; then
+    exit 0
+fi
+
+echo "✗ 提交被拒绝：提交信息提到了 phase，但 DEVLOG.md 没有改动。"
+echo ""
+echo "  每完成一个 Phase 必须在 DEVLOG.md 追加一节（docs/REQUIREMENTS.md §10），"
+echo "  且与代码在同一次提交里 —— 事后补写的决策记录必然失真。"
+echo ""
+echo "  确实不需要时用：git commit --no-verify"
+exit 1
