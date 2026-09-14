@@ -274,7 +274,8 @@ COMMIT
 | | |
 | --- | --- |
 | 描述 | 按 v2 §12 的 13 步执行一次抽奖。 |
-| 顺序 | 参数校验 → 幂等检查 → 查活动 → 状态/时间校验 → 每日次数校验 → 频率限流 → Redis Lua 原子扣活动库存 → 取候选奖品 → 加权抽奖 → Lua 原子扣奖品库存 → 写 MySQL 订单 → 保存幂等结果 → 返回 |
+| 顺序 | 参数校验 → 幂等检查 → 查活动 → 状态/时间校验 → **频率限流（FR-6a）** → **每日次数校验（FR-6b）** → Redis Lua 原子扣活动库存 → 取候选奖品 → 加权抽奖 → Lua 原子扣奖品库存 → 写 MySQL 订单 → 保存幂等结果 → 返回 |
+| 顺序理由 | 频率限流必须排在每日次数**之前**：否则高频客户端在被限流拒绝的同时，还会把当日配额消耗掉。任何在配额消耗之后失败的步骤（库存不足等）都必须归还配额，与 FR-7 的库存补偿同一套纪律。 |
 | 细则 | 候选奖品只包含 `stock_surplus > 0` 的行。抽中 `award_type = none` 的奖品时，`draw_state` 记为 `missed`、`award_state` 记为 `none`——**"谢谢参与"不得判为中奖**。 |
 | 判定 | 见 §8.4（Phase 3）的 pytest 场景清单。 |
 
@@ -479,11 +480,11 @@ COMMIT
 
 > v2 原估 1–2 天，但那是按"纯整理"算的。实测基线（§3）要求同时修复 5 个正确性缺陷。
 
-- [ ] FastAPI 可启动，Swagger 可访问，基础抽奖链路可执行
-- [ ] 修复 **D2**（`daily_limit` 语义）、**D3**（活动库存泄漏）、**D4**（时区）、**D6**（枚举未绑定）、**D7**（脏请求落库）
-- [ ] 根 `README.md` 将 Java 段落标记为 Legacy
-- [ ] `lottery_python/README.md` 的功能描述改为诚实表述（不再声称"库存扣减和限流"已完成）
-- [ ] v2 文档移入 `docs/PROJECT_PLAN.md`
+- [x] FastAPI 可启动，Swagger 可访问，基础抽奖链路可执行
+- [x] 修复 **D2**（`daily_limit` 语义）、**D3**（活动库存泄漏）、**D4**（时区）、**D6**（枚举未绑定）、**D7**（脏请求落库）
+- [x] 根 `README.md` 将 Java 段落标记为 Legacy
+- [x] `lottery_python/README.md` 的功能描述改为诚实表述（不再声称"库存扣减和限流"已完成）
+- [x] v2 文档移入 `docs/PROJECT_PLAN.md`
 
 ### 8.2 Phase 1：MySQL 化 + 容器化（预计 3–5 天）
 
@@ -539,18 +540,23 @@ Celery + Redis 异步发奖；GitHub Actions。若进入本阶段，需补建 `d
 
 ### 9.1 Python 版（必须修）
 
-| ID | 缺陷 | 位置 | 修复 Phase |
-| --- | --- | --- | --- |
-| **D1** | 库存扣减是 read-then-write（先读判 `>0`，再 `-=1`，再 commit），无原子语句 / 行锁 / 乐观锁 → 并发必超卖 | `app/infrastructure/repositories.py` | Phase 2（Lua 替代） |
-| **D2** | **`daily_limit` 语义错误**：字段是"每人每日次数"，却以 `window_seconds=60` 传给滑动窗口 → 每日限制根本没实现，用户每分钟重置配额 | `app/application/lottery_process.py:35` | Phase 0（拆成 FR-6a/6b） |
-| **D3** | **活动库存泄漏**：活动库存先扣（`:38`），之后若无可用奖品（`:43`）或奖品扣减失败（`:47`），**已扣的活动库存不回滚**，直接落 missed 订单 | `app/application/lottery_process.py:38-49` | Phase 0 |
-| **D4** | 时区不一致：用 naive `datetime.utcnow()`（`:28`）比较 API 传入的时间；调用方按北京时间填写会被误判"不在有效期内" | `lottery_process.py:28,31` vs `domain/models.py:42-43` | Phase 0 |
-| **D5** | 限流器内存无界增长：`defaultdict(deque)` 的 key 永不清理；`allow()` 的 check-then-append 无锁 | `app/infrastructure/limiters.py` | Phase 2（整体替换为 Redis） |
-| **D6** | Pydantic schema 中 `state` / `award_type` 是裸 `str`，未绑定枚举 → 可写入任意非法值 | `app/schemas/activity.py:14,29` | Phase 0 |
-| **D7** | "活动不存在"这类脏请求也写一行 `draw_order` → 可被刷库 | `lottery_process.py:54-56` | Phase 0（按 §4.5 处理） |
-| **D8** | `enable_redis` / `redis_url` 是死配置，无任何代码读取；`redis` 依赖已装但 `app/` 下零 import | `app/core/config.py` | Phase 2 |
+| ID | 缺陷 | 位置 | 修复 Phase | 状态 |
+| --- | --- | --- | --- | --- |
+| **D1** | 库存扣减是 read-then-write（先读判 `>0`，再 `-=1`，再 commit），无原子语句 / 行锁 / 乐观锁 → 并发必超卖 | `app/infrastructure/repositories.py` | Phase 2（Lua 替代） | ⬜ 未修复 |
+| **D2** | **`daily_limit` 语义错误**：字段是"每人每日次数"，却以 `window_seconds=60` 传给滑动窗口 → 每日限制根本没实现，用户每分钟重置配额 | `app/application/lottery_process.py:35` | Phase 0（拆成 FR-6a/6b） | ✅ 已修复（Phase 0） |
+| **D3** | **活动库存泄漏**：活动库存先扣（`:38`），之后若无可用奖品（`:43`）或奖品扣减失败（`:47`），**已扣的活动库存不回滚**，直接落 missed 订单 | `app/application/lottery_process.py:38-49` | Phase 0 | ✅ 已修复（Phase 0） |
+| **D4** | 时区不一致：用 naive `datetime.utcnow()`（`:28`）比较 API 传入的时间；调用方按北京时间填写会被误判"不在有效期内" | `lottery_process.py:28,31` vs `domain/models.py:42-43` | Phase 0 | ✅ 已修复（Phase 0） |
+| **D5** | 限流器内存无界增长：`defaultdict(deque)` 的 key 永不清理；`allow()` 的 check-then-append 无锁 | `app/infrastructure/limiters.py` | Phase 2（整体替换为 Redis） | ⬜ 未修复 |
+| **D6** | Pydantic schema 中 `state` / `award_type` 是裸 `str`，未绑定枚举 → 可写入任意非法值 | `app/schemas/activity.py:14,29` | Phase 0 | ✅ 已修复（Phase 0） |
+| **D7** | "活动不存在"这类脏请求也写一行 `draw_order` → 可被刷库 | `lottery_process.py:54-56` | Phase 0（按 §4.5 处理） | ✅ 已修复（Phase 0） |
+| **D8** | `enable_redis` / `redis_url` 是死配置，无任何代码读取；`redis` 依赖已装但 `app/` 下零 import | `app/core/config.py` | Phase 2 | ⬜ 未修复 |
 
-附带的语义问题（随对应 Phase 一并处理）：未中奖与"奖品库存不足"都返回 `success=True`，语义混乱；`_response` 的 `success` 字段需按 §4.5 重新定义。
+表中的文件/行号记录的是缺陷**原始位置**，用于追溯，修复后代码已变动。
+
+附带的语义问题：
+
+- ✅ 已随 Phase 0 修复：`success` 字段曾把"奖品库存不足"也返回 `True`，现按 §6.3 统一为「中奖/未中奖 → `true`，业务拒绝 → `false`」，并新增 `reject_reason`（§6.5）。
+- ⬜ 留到 Phase 1：抽中"谢谢参与"应记为 `missed` 而非中奖（FR-3）。当前 `AwardType` 仍是 `text/coupon/physical`，需随 §4.1 的枚举改名（`text` → `none`）一并处理，因此 `missed` 状态目前尚未被任何路径产生。
 
 ### 9.2 Java 版（不修，仅记录）
 

@@ -1,3 +1,4 @@
+from app.core.timeutil import to_db
 from app.domain.models import Activity, Award
 from app.infrastructure.repositories import ActivityRepository, AwardRepository
 from app.schemas.activity import ActivityCreate, AwardCreate
@@ -13,12 +14,13 @@ class ActivityService:
             activity_id=req.activity_id,
             name=req.name,
             description=req.description,
-            begin_time=req.begin_time,
-            end_time=req.end_time,
+            # 入参带时区，落库统一转成 naive UTC（§4.4）。
+            begin_time=to_db(req.begin_time),
+            end_time=to_db(req.end_time),
             stock_count=req.stock_count,
             stock_surplus_count=req.stock_count,
             daily_limit=req.daily_limit,
-            state=req.state,
+            state=req.state.value,
         )
         return self.activity_repo.create(activity)
 
@@ -26,7 +28,7 @@ class ActivityService:
         award = Award(
             activity_id=activity_id,
             name=req.name,
-            award_type=req.award_type,
+            award_type=req.award_type.value,
             content=req.content,
             stock_count=req.stock_count,
             stock_surplus_count=req.stock_count,
