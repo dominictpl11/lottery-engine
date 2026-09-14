@@ -260,8 +260,12 @@ class DrawStrategy:
 
 # 6. 推荐目录结构
 
+> **2026-09-14 更新**：Java 版冻结后，`lottery_python/` 这层目录已取消，Python 代码
+> 上浮到仓库根，Java 移入 `legacy/java/`。下面的树相应地以仓库根为起点，层级关系不变。
+> 变更原因见 README。
+
 ```text
-lottery_python/
+lottery-engine/
 ├── app/
 │   ├── main.py
 │   │
@@ -316,10 +320,20 @@ lottery_python/
 │   └── locustfile.py
 │
 ├── migrations/
+│
+├── docs/
+│   ├── PROJECT_PLAN.md
+│   ├── REQUIREMENTS.md
+│   └── db-explain.md
+│
+├── legacy/
+│   └── java/                        # 已冻结，仅作参考
+│
 ├── docker-compose.yml
+├── alembic.ini
 ├── requirements.txt
-├── README.md
-└── PROJECT_PLAN.md
+├── .env.example
+└── README.md
 ```
 
 不要求为了完全匹配目录结构而大规模重写现有代码。

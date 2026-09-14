@@ -2,7 +2,7 @@
 
 > 文档版本：v3.0
 > 更新时间：2026-09-14
-> 上位文档：[`docs/PROJECT_PLAN.md`](../docs/PROJECT_PLAN.md)（下称 **v2**）
+> 上位文档：[`PROJECT_PLAN.md`](PROJECT_PLAN.md)（下称 **v2**）
 
 ---
 
@@ -60,7 +60,7 @@ v3.0 相对上一版（v1，2026-06-22）的变化：
 
 ### 1.4 Java 版状态
 
-`src/`（Spring Boot 实现）自 v2 起为 **Legacy / Reference**：不删除、不维护、不要求与 Python 版同步、不再为本项目深入 Java 生态。
+`legacy/java/`（Spring Boot 实现）自 v2 起为 **Legacy / Reference**：不删除、不维护、不要求与 Python 版同步、不再为本项目深入 Java 生态。
 
 Java 版存在已知启动缺陷（见 §9.2），**不修复**。保留它的唯一用途是在面试中回答"为什么换技术栈"。
 
@@ -82,7 +82,7 @@ Java 版存在已知启动缺陷（见 §9.2），**不修复**。保留它的�
 
 ### 3.1 可用的部分
 
-`lottery_python/` 下的 FastAPI 服务可以启动，并跑通：建活动 → 配奖品 → 加权抽奖 → 订单落库 → Swagger。这是本项目唯一可运行的实现。
+`app/` 下的 FastAPI 服务可以启动，并跑通：建活动 → 配奖品 → 加权抽奖 → 订单落库 → Swagger。这是本项目唯一可运行的实现。
 
 ### 3.2 不可用 / 不正确的部分
 
@@ -92,7 +92,7 @@ Java 版存在已知启动缺陷（见 §9.2），**不修复**。保留它的�
 
 ### 3.3 历史文档作废声明
 
-`archive/2026-07-31/documents/` 下所有进度数字（"完成度 85%"、"95%"、"责任链 100%"）**全部作废**。实测与其结论不符：Java 版从未编译成功，责任链是死代码，无订单表。该目录仅作历史留存，不得作为任何判断依据。
+原 `archive/2026-07-31/` 下的 24 份历史文档已于 2026-09-14 **整体删除**（内容可从 git 历史取回）。其中所有进度数字（"完成度 85%"、"95%"、"责任链 100%"）经代码核实**全部不成立**：Java 版从未编译成功，责任链是死代码，没有订单表。不得引用这些数字。
 
 ### 3.4 基线折算
 
@@ -498,7 +498,7 @@ COMMIT
 - [x] FastAPI 可启动，Swagger 可访问，基础抽奖链路可执行
 - [x] 修复 **D2**（`daily_limit` 语义）、**D3**（活动库存泄漏）、**D4**（时区）、**D6**（枚举未绑定）、**D7**（脏请求落库）
 - [x] 根 `README.md` 将 Java 段落标记为 Legacy
-- [x] `lottery_python/README.md` 的功能描述改为诚实表述（不再声称"库存扣减和限流"已完成）
+- [x] README 的功能描述改为诚实表述（不再声称"库存扣减和限流"已完成）
 - [x] v2 文档移入 `docs/PROJECT_PLAN.md`
 
 ### 8.2 Phase 1：MySQL 化 + 容器化（预计 3–5 天）
@@ -510,7 +510,7 @@ COMMIT
 - [x] `docker-compose.yml` 提供 MySQL + Redis，`.env.example` 就位
 - [x] 服务重启后数据仍在
 - [x] 按 §4.6 落定事务边界，订单写入与库存兜底扣减在同一事务内
-- [x] 对 §4.3 中至少 1–2 条主要查询执行 `EXPLAIN`，确认命中索引、无全表扫描 —— 3 条查询全部命中，结果见 [`docs/db-explain.md`](../docs/db-explain.md)
+- [x] 对 §4.3 中至少 1–2 条主要查询执行 `EXPLAIN`，确认命中索引、无全表扫描 —— 3 条查询全部命中，结果见 [`db-explain.md`](db-explain.md)
 
 ### 8.3 Phase 2：Redis 并发控制（预计 4–7 天）
 
@@ -577,11 +577,11 @@ Celery + Redis 异步发奖；GitHub Actions。若进入本阶段，需补建 `d
 
 保留这些记录是为了能回答"为什么放弃 Java 版"：
 
-1. `src/main/resources/application.yml` 存在**两个顶层 `spring:` 键**（第 6 行、第 72 行）。Spring Boot 的 YAML 加载器禁止重复键，启动即抛 `DuplicateKeyException`。这是当年"8080 端口不监听"卡了 7 个月的真实原因——当时的 4 份排障文档全在排查 MySQL / Redis 是否启动，没有人检查配置文件结构。
+1. `legacy/java/src/main/resources/application.yml` 存在**两个顶层 `spring:` 键**（第 6 行、第 72 行）。Spring Boot 的 YAML 加载器禁止重复键，启动即抛 `DuplicateKeyException`。这是当年"8080 端口不监听"卡了 7 个月的真实原因——当时的 4 份排障文档全在排查 MySQL / Redis 是否启动，没有人检查配置文件结构。
 2. 同文件 RocketMQ 配置写在 `spring.rocketmq`，而 starter 读取的是顶层 `rocketmq:` → 配置不生效。
 3. `schema.sql` 只有 4 张表，**没有任何订单表**；`ActivityPartakeImpl.recordDrawOrder()` 是空实现，直接 `return true`。抽奖不留任何记录。
 4. `domain/rule/` 整包 8 个类是**死代码**——`IRuleEngine` 除自身外无任何引用，真正的校验硬编码在 `ActivityPartakeImpl` 中。
-5. `pom.xml` 锁定 `java.version=1.8` + Spring Boot 2.7.14，与本机 `JAVA_HOME=JDK 21` 冲突。
+5. `legacy/java/pom.xml` 锁定 `java.version=1.8` + Spring Boot 2.7.14，与本机 `JAVA_HOME=JDK 21` 冲突。
 6. 零测试（`src/test` 目录不存在）；`target/` 中无任何 `.class`，从未编译成功。
 
 ---

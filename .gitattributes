@@ -1,0 +1,12 @@
+# GitHub Linguist 按字节数统计语言。legacy/ 里的 Java 实现已冻结、不再维护
+# （见 README「Java 版」一节），把它排除在语言统计和搜索结果之外，
+# 否则 88KB 的 Java 会盖过 38KB 的 Python，仓库被标成 Java 项目。
+legacy/** linguist-vendored
+
+# Alembic 自动生成的迁移脚本不代表手写代码量。
+migrations/versions/** linguist-generated
+
+# 跨平台换行统一，避免 Windows 上 CRLF/LF 反复抖动。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
