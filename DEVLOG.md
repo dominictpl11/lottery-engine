@@ -435,7 +435,7 @@ MySQL 和 Redis 都已经有 healthcheck，重复造一遍只会多一处可能�
 
 ## 演示页（计划外的补充）
 
-`(待填)` · `app/static/` · 80 个测试
+`090beca` · `app/static/` · 80 个测试
 
 ### 为什么做了计划外的东西
 
