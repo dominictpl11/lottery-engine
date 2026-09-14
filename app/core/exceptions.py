@@ -27,3 +27,23 @@ class DrawPersistenceError(LotteryError):
     此时活动库存与当日配额已被占用，调用方必须先补偿再抛出（§4.6 的失败点表）。
     映射为 HTTP 500：这是系统错误，不是业务拒绝，应当计入压测失败率（§7.2）。
     """
+
+
+class DependencyUnavailableError(LotteryError):
+    """外部依赖（Redis）不可用。
+
+    映射为 HTTP 503。这是刻意的**快速失败**：Redis 承担原子库存、限流和幂等，
+    它不可用时若继续放行，超卖和重复发奖都会发生。宁可拒绝服务，也不产生
+    无法回滚的业务错误。见 README 的 Known Limitations。
+    """
+
+
+class DuplicateRequestError(LotteryError):
+    """同一 request_id 正在处理中。
+
+    映射为 HTTP 409。客户端应当把首次请求的结果视为准，而不是继续重试。
+    """
+
+    def __init__(self, request_id: str):
+        self.request_id = request_id
+        super().__init__(f"请求正在处理中，请勿重复提交: {request_id}")

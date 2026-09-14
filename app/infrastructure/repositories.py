@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.domain.models import Activity, Award, DrawOrder
@@ -11,33 +11,35 @@ class ActivityRepository:
     def get_by_activity_id(self, activity_id: int) -> Activity | None:
         return self.db.scalar(select(Activity).where(Activity.activity_id == activity_id))
 
+    def get_surplus(self, activity_id: int) -> int:
+        """当前剩余库存。用于 Redis key 缺失时的初始化（FR-7）。"""
+        v = self.db.scalar(
+            select(Activity.stock_surplus).where(Activity.activity_id == activity_id)
+        )
+        return int(v or 0)
+
     def create(self, activity: Activity) -> Activity:
         self.db.add(activity)
         self.db.commit()
         self.db.refresh(activity)
         return activity
 
-    def decrement_stock(self, activity_id: int) -> bool:
-        # 注意：这是 read-then-write，并发下会超卖（缺陷 D1）。
-        # Phase 2 用 Redis Lua 原子扣减替换，见 FR-7。
-        activity = self.get_by_activity_id(activity_id)
-        if activity is None or activity.stock_surplus <= 0:
-            return False
-        activity.stock_surplus -= 1
-        self.db.commit()
-        return True
+    def decrement_stock_nocommit(self, activity_id: int) -> bool:
+        """原子扣减活动库存，**不提交**。
 
-    def restore_stock(self, activity_id: int) -> None:
-        """归还一个活动库存。
+        用单条带条件的 UPDATE 而不是"读出来判断再赋值"（缺陷 D1）：
+        `WHERE stock_surplus > 0` 交给数据库在行锁内判断，rowcount 为 0 就说明
+        没扣到。这是 Redis 闸门之外的第二道防线——即使 Redis 被清空导致放行过量，
+        MySQL 这层仍然不会把库存扣成负数。
 
-        用于「活动库存已扣，但后续步骤失败」的补偿路径（缺陷 D3）。缺了这一步，
-        无奖可发或奖品扣减失败时，已扣的活动库存会凭空蒸发。
+        提交由调用方与订单写入放在同一事务里完成（§4.6）。
         """
-        activity = self.get_by_activity_id(activity_id)
-        if activity is None or activity.stock_surplus >= activity.stock_total:
-            return
-        activity.stock_surplus += 1
-        self.db.commit()
+        result = self.db.execute(
+            update(Activity)
+            .where(Activity.activity_id == activity_id, Activity.stock_surplus > 0)
+            .values(stock_surplus=Activity.stock_surplus - 1)
+        )
+        return result.rowcount == 1
 
 
 class AwardRepository:
@@ -55,23 +57,25 @@ class AwardRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def get_surplus(self, award_id: int) -> int:
+        """当前剩余库存。用于 Redis key 缺失时的初始化（FR-7）。"""
+        v = self.db.scalar(select(Award.stock_surplus).where(Award.award_id == award_id))
+        return int(v or 0)
+
     def create(self, award: Award) -> Award:
         self.db.add(award)
         self.db.commit()
         self.db.refresh(award)
         return award
 
-    def decrement_stock_nocommit(self, award: Award) -> bool:
-        """扣减奖品库存，但**不提交**。
-
-        提交由调用方与订单写入放在同一个事务里完成（§4.6），避免出现
-        「订单说中奖、但奖品库存没扣」的不一致。
-        并发正确性仍依赖 Phase 2 的 Redis Lua（缺陷 D1）。
-        """
-        if award.stock_surplus <= 0:
-            return False
-        award.stock_surplus -= 1
-        return True
+    def decrement_stock_nocommit(self, award_id: int) -> bool:
+        """原子扣减奖品库存，**不提交**。理由同 ActivityRepository.decrement_stock_nocommit。"""
+        result = self.db.execute(
+            update(Award)
+            .where(Award.award_id == award_id, Award.stock_surplus > 0)
+            .values(stock_surplus=Award.stock_surplus - 1)
+        )
+        return result.rowcount == 1
 
 
 class DrawOrderRepository:

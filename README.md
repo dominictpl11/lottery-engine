@@ -39,8 +39,10 @@ python -m uvicorn app.main:app --reload --port 8000
 | `POST` | `/api/activities/{activity_id}/awards` | 配置奖品（201） |
 | `POST` | `/api/lottery/draw` | 执行抽奖 |
 
-两点容易踩的契约：
+三点容易踩的契约：
 
+- 抽奖请求**必须带 `request_id`**（客户端生成的 UUID）。它是幂等键：重发同一个
+  `request_id` 只会产生一次扣库存和一条订单，正在处理中的重复请求返回 409。
 - 时间入参**必须带时区偏移**（如 `2026-09-14T18:00:00+08:00`）。不带偏移的值返回 422，
   不会被猜成 UTC。
 - `success` 表示**流程是否正常完成**，不表示是否中奖。中奖和未中奖都是 `true`；
@@ -74,23 +76,39 @@ lottery-engine/
 
 ## 当前进度
 
-Phase 0（基线修复）、Phase 1（MySQL 化 + 容器化）已完成。
+Phase 0（基线修复）、Phase 1（MySQL 化 + 容器化）、Phase 2（Redis 并发控制）已完成。
 
-**已具备**：MySQL 8.4 持久化、Alembic 迁移可从空库复现结构、唯一约束/外键/CHECK 约束、
-按查询设计并验证过的索引、奖品库存与订单写入的事务边界、活动与奖品配置、加权抽奖、
-频率限流、每日参与次数。
+**已具备**：
 
-**已知尚未解决**（Phase 2 的全部内容）：
-
-| | 现状 |
+| | |
 | --- | --- |
-| 库存扣减 | 仍是 read-then-write，**并发下会超卖** |
-| 限流与每日次数 | 仍是**进程内**实现，多 worker 各算各的，重启即失忆 |
-| Redis | 容器已起，应用**尚未接入** |
-| 幂等 | `draw_order.request_id` 的 UNIQUE 约束已就位，但值由服务端生成，**没有真正的幂等语义** |
+| 存储 | MySQL 8.4，Alembic 迁移可从空库复现结构；唯一约束 / 外键 / CHECK 约束；索引按查询设计并用 `EXPLAIN` 验证 |
+| 并发 | Redis Lua 原子扣库存、ZSet 滑动窗口限流、`request_id` 幂等，全部跨进程生效 |
+| 事务 | 两处库存扣减与订单写入在同一事务；失败则回滚并按逆序归还 Redis 库存与当日配额 |
+| 业务 | 活动/奖品配置、加权抽奖、订单落库、频率限流（秒级防刷）、每日参与次数（日级配额） |
+| 运行 | `docker compose up -d` 起 MySQL + Redis |
 
-之后是 Phase 3（pytest）、Phase 4（Locust benchmark）、Phase 5（交付）。
+**已实测的并发不变量**（4 个 uvicorn worker）：
+
+- 库存 100 / 800 并发 → **恰好 100 次中奖，零超卖**，MySQL 与 Redis 库存均归零不为负
+- 同一 `request_id` 并发 20 次 → 库中**只有 1 条订单**，库存只扣 1
+- 同一用户 12 次并发 → 只放行 3 次（配置 10s/3 次）。进程内实现在 4 worker 下会放行 12 次
+- Redis 宕机 → 抽奖返回 **503**，不降级放行；恢复后无需重启
+
+**尚未完成**：pytest 测试体系（Phase 3）、Locust 压测报告（Phase 4）、API 容器化与
+交付文档（Phase 5）。可选的 Celery 异步发奖在 Phase 6。
+
 逐项验收标准见 [`docs/REQUIREMENTS.md` §8](docs/REQUIREMENTS.md)。
+
+## Known Limitations
+
+- **Redis 与 MySQL 是双写**，没有分布式事务。Redis 作闸门、MySQL 作账本，失败路径靠
+  显式补偿而非两阶段提交。极端情况下（补偿本身失败）两者可能短暂漂移，
+  下一次请求会用 MySQL 的剩余量重新初始化 Redis 计数。
+- **Redis 不可用时整个抽奖不可用**（返回 503）。这是刻意选择：静默降级到进程内实现
+  会在多 worker 下直接导致超卖，拒绝服务可恢复，超发的奖品不可回收。
+- 单体部署，未做跨机房高可用。
+- 中奖后的实际发奖尚未实现，订单停在 `award_state = pending`。
 
 ## Java 版（Legacy / Reference）
 

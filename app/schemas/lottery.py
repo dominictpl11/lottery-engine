@@ -9,10 +9,11 @@ class DrawAward(BaseModel):
 
 
 class DrawRequest(BaseModel):
+    # 幂等键，由客户端（或压测脚本）为每次逻辑请求生成，通常是 UUID。
+    # 重发同一个 request_id 只会产生一次副作用（FR-5）。
+    request_id: str = Field(min_length=8, max_length=64)
     user_id: str = Field(min_length=1, max_length=64)
     activity_id: int
-    # request_id（客户端提供的幂等键，FR-5）在 Phase 2 随 Redis 幂等一并加入。
-    # 当前由服务端生成，先把 draw_order.request_id 的 UNIQUE 约束立起来。
 
 
 class DrawResponse(BaseModel):

@@ -1,14 +1,18 @@
 """抽奖主链路编排（FR-3）。
 
 链路顺序见 REQUIREMENTS.md FR-3：
-    查活动 -> 状态/时间校验 -> 频率限流(FR-6a) -> 每日次数(FR-6b)
-    -> 扣活动库存 -> 取候选奖品 -> 加权抽奖 -> 扣奖品库存 + 写订单(同一事务) -> 返回
+    幂等检查 -> 查活动 -> 状态/时间校验 -> 频率限流(FR-6a) -> 每日次数(FR-6b)
+    -> Redis 原子扣活动库存 -> 取候选奖品 -> 加权抽奖 -> Redis 原子扣奖品库存
+    -> MySQL 事务(扣两处库存 + 写订单) -> 保存幂等结果 -> 返回
 
-三条纪律贯穿本文件：
-1. 任何已经占用的资源（活动库存、当日配额），在其后的步骤失败时必须归还。
-2. 活动不存在属于"请求无效"，返回 404 且不落订单；其余业务拒绝才落 rejected 订单。
-3. 奖品库存扣减与订单写入必须在同一个数据库事务内（§4.6），否则会出现
-   "订单说中奖、但奖品库存没扣"。
+Redis 与 MySQL 的分工：Redis 是**闸门**，在高并发下决定放不放行；MySQL 是**账本**，
+在事务里记录最终结果，UPDATE 带 `stock_surplus > 0` 作为第二道防线。
+
+三条纪律：
+1. 任何已占用的资源（活动库存、奖品库存、当日配额），后续步骤失败时必须按占用的
+   逆序归还。
+2. 活动不存在返回 404 且不落订单；其余业务拒绝才落 rejected 订单。
+3. 两处库存扣减与订单写入必须在同一个数据库事务内（§4.6）。
 """
 
 from uuid import uuid4
@@ -16,8 +20,17 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.exceptions import ActivityNotFoundError, DrawPersistenceError
-from app.core.timeutil import china_day_key, from_db, utc_now
+from app.core.exceptions import (
+    ActivityNotFoundError,
+    DrawPersistenceError,
+    DuplicateRequestError,
+)
+from app.core.timeutil import (
+    china_day_key,
+    from_db,
+    seconds_until_china_midnight,
+    utc_now,
+)
 from app.domain.models import (
     ActivityStatus,
     AwardState,
@@ -27,9 +40,15 @@ from app.domain.models import (
     RejectReason,
 )
 from app.domain.strategy.draw_algorithm import WeightedDrawAlgorithm
-from app.infrastructure.daily_counter import daily_counter
-from app.infrastructure.limiters import sliding_window_limiter
-from app.infrastructure.repositories import ActivityRepository, AwardRepository, DrawOrderRepository
+from app.infrastructure.redis.daily_quota import RedisDailyQuota
+from app.infrastructure.redis.idempotency import IdempotencyState, RedisIdempotency
+from app.infrastructure.redis.inventory import RedisInventory
+from app.infrastructure.redis.rate_limiter import RedisRateLimiter
+from app.infrastructure.repositories import (
+    ActivityRepository,
+    AwardRepository,
+    DrawOrderRepository,
+)
 from app.schemas.lottery import DrawAward, DrawRequest, DrawResponse
 
 _REJECT_MESSAGES = {
@@ -49,14 +68,40 @@ class LotteryProcess:
         activity_repo: ActivityRepository,
         award_repo: AwardRepository,
         order_repo: DrawOrderRepository,
+        inventory: RedisInventory,
+        rate_limiter: RedisRateLimiter,
+        daily_quota: RedisDailyQuota,
+        idempotency: RedisIdempotency,
     ):
         self.db = db
         self.activity_repo = activity_repo
         self.award_repo = award_repo
         self.order_repo = order_repo
+        self.inventory = inventory
+        self.rate_limiter = rate_limiter
+        self.daily_quota = daily_quota
+        self.idempotency = idempotency
         self.draw_algorithm = WeightedDrawAlgorithm()
 
     def draw(self, req: DrawRequest) -> DrawResponse:
+        # FR-5：同一 request_id 只执行一次。抢不到占位的直接回放或拒绝。
+        state, cached = self.idempotency.begin(req.request_id)
+        if state is IdempotencyState.done:
+            return DrawResponse(**cached)
+        if state is IdempotencyState.in_flight:
+            raise DuplicateRequestError(req.request_id)
+
+        try:
+            response = self._draw_once(req)
+        except Exception:
+            # 执行失败就释放占位，让这个 request_id 可以被重试。
+            self.idempotency.abort(req.request_id)
+            raise
+
+        self.idempotency.complete(req.request_id, response.model_dump(mode="json"))
+        return response
+
+    def _draw_once(self, req: DrawRequest) -> DrawResponse:
         activity = self.activity_repo.get_by_activity_id(req.activity_id)
         if activity is None:
             # 404，不落库。见 §4.5 与缺陷 D7。
@@ -70,40 +115,57 @@ class LotteryProcess:
             return self._reject(req, RejectReason.activity_not_in_window)
 
         # FR-6a 频率限流。排在每日配额之前：否则高频请求在被拒的同时还会烧掉当日配额。
-        rate_key = f"draw:rate:{req.activity_id}:{req.user_id}"
-        if not sliding_window_limiter.allow(
-            rate_key,
-            window_seconds=settings.rate_limit_window_seconds,
-            max_count=settings.rate_limit_max_count,
+        if not self.rate_limiter.allow(
+            req.activity_id,
+            req.user_id,
+            settings.rate_limit_window_seconds,
+            settings.rate_limit_max_count,
         ):
             return self._reject(req, RejectReason.rate_limited)
 
-        # FR-6b 每日参与次数。与限流是两回事：上限取 activity.daily_limit，按自然日重置。
+        # FR-6b 每日参与次数。上限取 activity.daily_limit，按 Asia/Shanghai 自然日重置。
         day = china_day_key(now)
-        daily_key = f"draw:daily:{req.activity_id}:{req.user_id}"
-        if not daily_counter.try_consume(daily_key, day, activity.daily_limit):
+        if not self.daily_quota.try_consume(
+            req.activity_id,
+            req.user_id,
+            day,
+            activity.daily_limit,
+            seconds_until_china_midnight(now),
+        ):
             return self._reject(req, RejectReason.daily_limit_exceeded)
 
-        if not self.activity_repo.decrement_stock(req.activity_id):
-            daily_counter.release(daily_key, day)
+        # FR-7 Redis 闸门：活动库存。key 不存在时从 MySQL 的剩余量初始化。
+        if not self.inventory.decrement_activity(
+            req.activity_id,
+            lambda: self.activity_repo.get_surplus(req.activity_id),
+            activity.stock_total,
+        ):
+            self.daily_quota.release(req.activity_id, req.user_id, day)
             return self._reject(req, RejectReason.activity_stock_exhausted)
 
         awards = self.award_repo.list_available_by_activity(req.activity_id)
         award = self.draw_algorithm.draw(awards)
         if award is None:
-            # 无奖可发：活动库存与当日配额都要归还（缺陷 D3）。
-            self._compensate(req.activity_id, daily_key, day)
+            self._release_activity(req, activity, day)
             return self._reject(req, RejectReason.award_stock_exhausted)
 
-        if not self.award_repo.decrement_stock_nocommit(award):
-            self._compensate(req.activity_id, daily_key, day)
+        # FR-7 Redis 闸门：奖品库存。
+        if not self.inventory.decrement_award(
+            award.award_id,
+            lambda: self.award_repo.get_surplus(award.award_id),
+            award.stock_total,
+        ):
+            self._release_activity(req, activity, day)
             return self._reject(req, RejectReason.award_stock_exhausted)
 
+        return self._persist(req, activity, award, day)
+
+    def _persist(self, req: DrawRequest, activity, award, day: str) -> DrawResponse:
         # 「谢谢参与」是一个真实奖品（有库存、有权重），但不算中奖（FR-3）。
         won = award.award_type != AwardType.none.value
         order = DrawOrder(
             order_id=uuid4().hex,
-            request_id=uuid4().hex,
+            request_id=req.request_id,
             user_id=req.user_id,
             activity_id=req.activity_id,
             award_id=award.award_id,
@@ -111,14 +173,21 @@ class LotteryProcess:
             award_state=AwardState.pending.value if won else AwardState.none.value,
             message="中奖" if won else "未中奖",
         )
-        self.order_repo.add_nocommit(order)
 
-        # §4.6 的单事务范围：奖品库存扣减 + 订单写入一起提交。
+        # §4.6 的单事务范围：两处库存扣减 + 订单写入一起提交。
         try:
+            if not self.activity_repo.decrement_stock_nocommit(req.activity_id):
+                raise DrawPersistenceError("活动库存在数据库层扣减失败")
+            if not self.award_repo.decrement_stock_nocommit(award.award_id):
+                raise DrawPersistenceError("奖品库存在数据库层扣减失败")
+            self.order_repo.add_nocommit(order)
             self.db.commit()
         except Exception as exc:
             self.db.rollback()
-            self._compensate(req.activity_id, daily_key, day)
+            self.inventory.restore_award(award.award_id, award.stock_total)
+            self._release_activity(req, activity, day)
+            if isinstance(exc, DrawPersistenceError):
+                raise
             raise DrawPersistenceError("抽奖结果写入失败，已回滚并归还库存") from exc
 
         self.db.refresh(order)
@@ -133,16 +202,16 @@ class LotteryProcess:
             message=order.message,
         )
 
-    def _compensate(self, activity_id: int, daily_key: str, day: str) -> None:
-        """归还已占用的活动库存与当日配额。"""
-        self.activity_repo.restore_stock(activity_id)
-        daily_counter.release(daily_key, day)
+    def _release_activity(self, req: DrawRequest, activity, day: str) -> None:
+        """归还活动库存与当日配额（按占用的逆序）。"""
+        self.inventory.restore_activity(req.activity_id, activity.stock_total)
+        self.daily_quota.release(req.activity_id, req.user_id, day)
 
     def _reject(self, req: DrawRequest, reason: RejectReason) -> DrawResponse:
         message = _REJECT_MESSAGES[reason]
         order = DrawOrder(
             order_id=uuid4().hex,
-            request_id=uuid4().hex,
+            request_id=req.request_id,
             user_id=req.user_id,
             activity_id=req.activity_id,
             award_id=None,
