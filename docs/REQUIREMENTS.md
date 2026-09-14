@@ -571,10 +571,13 @@ python load_tests/run_benchmark.py Stress    # 只跑一档，便于排查
 
 ### 8.6 Phase 5：README + 交付（预计 2–3 天）
 
-- [ ] API 容器化并入 compose
-- [ ] README 按 v2 §23 的 15 节组织，含架构图、真实 benchmark、**Known Limitations**
-- [ ] 简历 bullet 按 §11 的口径落定
-- [ ] 更新 `DEVLOG.md`（§10）
+- [x] API 容器化并入 compose —— `Dockerfile` + `docker/entrypoint.sh`，`docker compose up -d` 一条命令起 MySQL + Redis + API，迁移在 entrypoint 自动执行
+- [x] README 按 v2 §23 的 15 节组织，含架构图、真实 benchmark、**Known Limitations**
+- [x] 简历 bullet 按 §11 的口径落定 —— [`RESUME.md`](RESUME.md)，含"不能说的话"清单
+- [x] 更新 `DEVLOG.md`（§10）
+
+从空数据卷验证：`docker compose down -v && docker compose up -d` 后三服务全部 healthy、
+迁移自动建表、容器内端到端抽奖成功且幂等生效。
 
 ### 8.7 Phase 6：可选（仅在前述全部完成且有余量时）
 

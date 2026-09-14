@@ -1,0 +1,12 @@
+.git
+.venv
+tests
+load_tests
+docs
+legacy
+.bench_tmp
+bench-server.log
+**/__pycache__
+*.pyc
+.env
+.pytest_cache

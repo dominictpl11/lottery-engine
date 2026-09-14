@@ -53,6 +53,32 @@ services:
       timeout: 3s
       retries: 20
 
+  api:
+    build: .
+    container_name: lottery-api
+    restart: unless-stopped
+    environment:
+      # 容器之间用服务名互相寻址，不走宿主机端口。
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-lottery}:${MYSQL_PASSWORD:-lottery}@mysql:3306/${MYSQL_DATABASE:-lottery_db}?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-10}
+      RATE_LIMIT_MAX_COUNT: ${RATE_LIMIT_MAX_COUNT:-3}
+    ports:
+      # 宿主机端口可改：本机 8000 若已被别的项目占用，在 .env 里设 API_HOST_PORT。
+      - "${API_HOST_PORT:-8000}:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
 volumes:
   mysql_data:
   redis_data:
