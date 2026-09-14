@@ -3,7 +3,6 @@ const ACTIVITY_ID = 100001;
 const $ = (id) => document.getElementById(id);
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const SPIN_MS = 4200;
 
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -25,113 +24,96 @@ function escapeHtml(s) {
 // 奖品类型到图标。纯展示用，后端不关心。
 const EMOJI = { physical: "📱", coupon: "🎟️", virtual: "💎", none: "🙏" };
 
-// ---------- 转盘 ----------
+// ---------- 九宫格 ----------
+
+// 3x3 布局，中间是按钮，外圈 8 格顺时针的 DOM 下标：
+//   0 1 2
+//   3 4 5      ->  0 -> 1 -> 2 -> 5 -> 8 -> 7 -> 6 -> 3 -> 回到 0
+//   6 7 8
+const PERIMETER = [0, 1, 2, 5, 8, 7, 6, 3];
 
 let awards = [];
-let segments = [];
-let rotation = 0;   // 累计旋转角，只增不减，保证永远正向转
+let slots = [];        // 长度 8，slots[k] 对应 PERIMETER[k] 那一格
+let activeK = 0;       // 当前高亮停在外圈的第几格
 
-function buildSegments(list) {
-  const total = list.reduce((s, w) => s + w.weight, 0) || 1;
-  let cursor = 0;
-  return list.map((w) => {
-    const span = (w.weight / total) * 360;
-    const seg = { award: w, start: cursor, end: cursor + span, mid: cursor + span / 2 };
-    cursor += span;
-    return seg;
-  });
+/**
+ * 把奖品铺进 8 个格子。
+ *
+ * 刻意**平均分配**而不是按权重：如果概率高的奖品占更多格子，用户数一下格子就能
+ * 反推出中奖率。真实的中奖概率只存在于后端的 weight 里，格子数不携带任何信息。
+ * 4 个奖品就各占 2 格，轮流铺开，同一奖品自然分散在对角位置。
+ */
+function buildSlots(list, n = 8) {
+  if (!list.length) return [];
+  return Array.from({ length: n }, (_, i) => list[i % list.length]);
 }
 
-function drawWheel() {
-  const canvas = $("wheel");
-  const dpr = window.devicePixelRatio || 1;
-  const size = canvas.clientWidth || 300;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, size, size);
-
-  const cx = size / 2, cy = size / 2, r = size / 2;
-  const rad = (d) => (d * Math.PI) / 180;
-
-  segments.forEach((seg, i) => {
-    const soldOut = seg.award.stock_surplus === 0;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, rad(seg.start), rad(seg.end));
-    ctx.closePath();
-    // 红金交替，是国内抽奖转盘的通用视觉语言
-    ctx.fillStyle = soldOut ? "#e6e0d8" : (i % 2 === 0 ? "#fff6dc" : "#ffe2ae");
-    ctx.fill();
-    ctx.strokeStyle = "rgba(245,166,35,.55)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // 文字沿半径方向排，但**居中于扇区**而不是贴边——大扇区（"谢谢参与" 占 70%）
-    // 贴边会把字挤到圆周上，几乎读不出来。
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(rad(seg.mid));
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const span = seg.end - seg.start;
-    const big = span >= 40;              // 大扇区给更大的字和更靠内的位置
-    const small = span < 16;
-    let tx = big ? r * 0.58 : r - 42;    // 文字中心离圆心的距离
-
-    // 扇区中心角落在 90°~270° 时，跟随旋转后的文字会上下颠倒。
-    // 再转 180° 并把文字放到反方向，就能始终保持正着读。
-    const mid = ((seg.mid % 360) + 360) % 360;
-    if (mid > 90 && mid < 270) {
-      ctx.rotate(Math.PI);
-      tx = -tx;
-    }
-
-    ctx.fillStyle = soldOut ? "#a79f94" : "#c0392b";
-    ctx.font = `700 ${small ? 10 : big ? 15 : 12.5}px system-ui, "Microsoft YaHei", sans-serif`;
-    let name = seg.award.name;
-    const maxLen = small ? 5 : 8;
-    if (name.length > maxLen) name = name.slice(0, maxLen - 1) + "…";
-    ctx.fillText(name, tx, big ? 11 : 0);
-
-    ctx.font = `${small ? 13 : big ? 24 : 16}px serif`;
-    ctx.fillText(EMOJI[seg.award.award_type] || "🎁", tx, big ? -14 : (small ? -13 : -16));
-    ctx.restore();
+function renderGrid() {
+  const cells = new Array(9);
+  slots.forEach((award, k) => {
+    const soldOut = award.stock_surplus === 0;
+    cells[PERIMETER[k]] =
+      `<div class="cell ${soldOut ? "sold-out" : ""}" data-k="${k}">
+         <div class="emoji">${EMOJI[award.award_type] || "🎁"}</div>
+         <div class="name">${escapeHtml(award.name)}</div>
+       </div>`;
   });
+  cells[4] =
+    `<button id="spin-btn" class="spin"><span>抽奖</span><em id="spin-note">立即抽</em></button>`;
+  $("grid").innerHTML = cells.join("");
+  bindSpin();
+  setActive(activeK);
+}
+
+function setActive(k) {
+  document.querySelectorAll(".cell").forEach((el) => el.classList.remove("active"));
+  const el = document.querySelector(`.cell[data-k="${k}"]`);
+  if (el) el.classList.add("active");
+  activeK = k;
+}
+
+/**
+ * 高亮沿外圈跑若干圈后停在目标格。
+ *
+ * 目标格由**后端返回的奖品**决定，前端只负责让它停在对的位置——
+ * 绝不能在前端再随机一次，否则界面显示的结果和真实落库的订单会对不上。
+ */
+async function runHighlight(targetK) {
+  const loops = 3;
+  const from = activeK;
+  const steps = loops * 8 + (((targetK - from) % 8) + 8) % 8;
+  document.querySelectorAll(".cell").forEach((el) => el.classList.remove("landed"));
+
+  for (let i = 1; i <= steps; i++) {
+    setActive((from + i) % 8);
+    // 缓出：开始快、越接近终点越慢，是这类抽奖动画的标准手感
+    await sleep(40 + 300 * Math.pow(i / steps, 2.8));
+  }
+  const el = document.querySelector(`.cell[data-k="${targetK}"]`);
+  if (el) el.classList.add("landed");
+}
+
+/** 在属于该奖品的若干格子里随便挑一个落点——同一奖品占了多格，落哪个都合法。 */
+function pickCellFor(awardId) {
+  const idx = slots
+    .map((a, k) => (a.award_id === awardId ? k : -1))
+    .filter((k) => k >= 0);
+  return idx.length ? idx[Math.floor(Math.random() * idx.length)] : 0;
 }
 
 function buildLights() {
   const box = $("lights");
-  const n = 18;
+  const n = 20;
+  // 沿圆角矩形边框铺一圈灯珠
   box.innerHTML = Array.from({ length: n }, (_, i) => {
-    const a = (i / n) * 2 * Math.PI - Math.PI / 2;
-    const x = 50 + 48.5 * Math.cos(a);
-    const y = 50 + 48.5 * Math.sin(a);
+    const t = i / n;
+    let x, y;
+    if (t < 0.25) { x = t * 4 * 100; y = 0; }
+    else if (t < 0.5) { x = 100; y = (t - 0.25) * 4 * 100; }
+    else if (t < 0.75) { x = 100 - (t - 0.5) * 4 * 100; y = 100; }
+    else { x = 0; y = 100 - (t - 0.75) * 4 * 100; }
     return `<i style="left:${x}%;top:${y}%;animation-delay:${(i % 6) * 0.18}s"></i>`;
   }).join("");
-}
-
-/**
- * 把转盘转到指定奖品所在扇区。
- *
- * 结果由**后端**决定，前端只负责让指针停在对应扇区上——绝不能在前端再随机一次，
- * 那样转盘显示的结果就和真实落库的订单对不上了。
- */
-function spinTo(awardId) {
-  const seg = segments.find((s) => s.award.award_id === awardId);
-  const canvas = $("wheel");
-  if (!seg) {
-    rotation += 360 * 4;
-    canvas.style.transform = `rotate(${rotation}deg)`;
-    return;
-  }
-  // 指针固定在正上方（270°）。扇区中心角 mid 旋转 R 后应落到 270°：mid + R ≡ 270
-  const jitter = (Math.random() - 0.5) * (seg.end - seg.start) * 0.6;
-  const target = 270 - (seg.mid + jitter);
-  const turns = 5 + Math.floor(Math.random() * 2);
-  rotation += turns * 360 + (((target - (rotation % 360)) % 360) + 360) % 360;
-  canvas.style.transform = `rotate(${rotation}deg)`;
 }
 
 // ---------- 中奖播报 ----------
@@ -191,8 +173,8 @@ async function loadActivity() {
   $("left-count").textContent = Math.max(dailyLimit - usedToday, 0);
 
   awards = aw.data || [];
-  segments = buildSegments(awards);
-  drawWheel();
+  slots = buildSlots(awards);
+  renderGrid();
 
   const total = awards.reduce((s, w) => s + w.weight, 0) || 1;
   $("prizes").innerHTML = awards.map((w) => `
@@ -226,7 +208,11 @@ $("new-user").onclick = () => {
   $("left-count").textContent = dailyLimit;
 };
 
-$("spin-btn").onclick = async () => {
+function bindSpin() {
+  $("spin-btn").onclick = onSpin;
+}
+
+async function onSpin() {
   const btn = $("spin-btn");
   btn.disabled = true;
   $("spin-note").textContent = "抽奖中";
@@ -237,11 +223,18 @@ $("spin-btn").onclick = async () => {
     activity_id: ACTIVITY_ID,
   };
   const { status, data } = await api("POST", "/api/lottery/draw", payload);
-  $("draw-raw").textContent =
-    "POST /api/lottery/draw\n" + JSON.stringify(payload, null, 2) +
-    `\n\n<- HTTP ${status}\n` + JSON.stringify(data, null, 2);
+  // 用数组 join 拼多行文本，不写 \n 转义——
+  // 这段代码是脚本生成的，转义序列在层层引号间传递时会被改写成真实换行，
+  // 塞进 JS 字符串字面量里就是语法错误。
+  $("draw-raw").textContent = [
+    "POST /api/lottery/draw",
+    JSON.stringify(payload, null, 2),
+    "",
+    "<- HTTP " + status,
+    JSON.stringify(data, null, 2),
+  ].join(String.fromCharCode(10));
 
-  // 被拒绝就不转：转完 4 秒再说"你被限流了"很莫名其妙。
+  // 被拒绝就不跑灯：跑完 3 秒再说"你被限流了"很莫名其妙。
   if (status !== 200 || data.draw_state === "rejected") {
     showReject(status, data);
     btn.disabled = false;
@@ -254,8 +247,7 @@ $("spin-btn").onclick = async () => {
 
   const won = data.draw_state === "won";
   const landing = won ? data.award.award_id : idOfThanks();
-  spinTo(landing);
-  await sleep(SPIN_MS);
+  await runHighlight(pickCellFor(landing));
 
   if (won) {
     pushFeed(payload.user_id, data.award.award_name);
@@ -271,9 +263,9 @@ $("spin-btn").onclick = async () => {
   }
 
   await loadActivity();
-  btn.disabled = false;
+  $("spin-btn").disabled = false;
   $("spin-note").textContent = "立即抽";
-};
+}
 
 /** missed 时后端不返回 award 对象，落在"谢谢参与"扇区上。 */
 function idOfThanks() {

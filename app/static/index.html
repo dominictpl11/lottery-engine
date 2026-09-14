@@ -16,14 +16,9 @@
 
 <main>
   <div class="stage">
-    <div class="wheel-frame">
+    <div class="grid-frame">
       <div class="lights" id="lights"></div>
-      <div class="pointer"></div>
-      <canvas id="wheel" width="300" height="300"></canvas>
-      <button id="spin-btn" class="spin">
-        <span>抽奖</span>
-        <em id="spin-note">立即抽</em>
-      </button>
+      <div class="grid" id="grid"></div>
     </div>
     <p class="hint" id="stage-hint">今日还可抽 <b id="left-count">–</b> 次</p>
   </div>
@@ -36,7 +31,7 @@
   <section class="card">
     <h2>开发者面板</h2>
     <p class="muted">
-      转盘只能证明接口调得通。这一栏用来<strong>当场证伪</strong>这个项目的核心主张：
+      九宫格只能证明接口调得通。这一栏用来<strong>当场证伪</strong>这个项目的核心主张：
       同时打出 N 个请求，跑完直接对账——产生的订单数是否等于消耗的库存、库存有没有被扣成负数。
     </p>
     <div class="row">
