@@ -1,7 +1,9 @@
 import logging
+from contextlib import asynccontextmanager
 
 import redis as redis_lib
 from fastapi import FastAPI, Request
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
@@ -17,6 +19,18 @@ from app.interfaces.api.lottery_controller import router as lottery_router
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Redis 承担原子库存、限流和幂等，起不来就没必要假装能提供服务。
+    # 这里只告警不退出，让 /api/health 仍可探活；抽奖接口会以 503 拒绝。
+    try:
+        redis_ping()
+        logger.info("Redis 连接正常")
+    except redis_lib.RedisError as exc:
+        logger.error("Redis 不可用，抽奖接口将返回 503：%s", exc)
+    yield
+
+
 def create_app() -> FastAPI:
     # 建表交给 Alembic（`alembic upgrade head`），不再用 create_all：
     # 否则 schema 会有两个真源，迁移也无法复现结构（§8.2）。
@@ -24,21 +38,12 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Lottery Engine",
         description="Concurrency-safe marketing lottery service.",
-        version="0.2.0",
+        version="0.3.0",
+        lifespan=lifespan,
     )
 
     app.include_router(activity_router, prefix="/api")
     app.include_router(lottery_router, prefix="/api")
-
-    @app.on_event("startup")
-    def check_dependencies() -> None:
-        # Redis 承担原子库存、限流和幂等，起不来就没必要假装能提供服务。
-        # 这里只告警不退出，让 /api/health 仍可探活；抽奖接口会以 503 拒绝。
-        try:
-            redis_ping()
-            logger.info("Redis 连接正常")
-        except redis_lib.RedisError as exc:
-            logger.error("Redis 不可用，抽奖接口将返回 503：%s", exc)
 
     # 领域异常在这里统一映射为 HTTP，应用层与领域层不依赖 FastAPI（§5.2）。
     @app.exception_handler(ActivityNotFoundError)
@@ -56,6 +61,18 @@ def create_app() -> FastAPI:
     @app.exception_handler(DependencyUnavailableError)
     async def handle_dependency_unavailable(_: Request, exc: DependencyUnavailableError):
         return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+    # 数据库连接池耗尽是**容量问题**，不是程序错误，语义上属于 503 而非 500：
+    # 服务端一切正常，只是当前负载超过了它能同时处理的量。
+    # 分开返回有实际意义——压测报告里 503 代表"这台机器到顶了"，
+    # 500 才代表"有 bug 要修"。
+    @app.exception_handler(SATimeoutError)
+    async def handle_pool_timeout(_: Request, exc: SATimeoutError):
+        logger.error("数据库连接池耗尽：%s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "服务繁忙，请稍后重试"},
+        )
 
     # Redis 故障统一转成 503：快速失败，绝不降级放行（见 client.py 的说明）。
     @app.exception_handler(redis_lib.RedisError)

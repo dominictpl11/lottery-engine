@@ -529,23 +529,45 @@ COMMIT
 
 ### 8.4 Phase 3：pytest（预计 3–5 天）
 
-必须覆盖的场景：
+**76 个用例全部通过**（unit 16 / integration 53 / concurrency 7）。
+测试跑在独立的 `lottery_test` 库与 Redis db 1 上，与开发数据完全隔离。
 
-- **正常**：活动创建、奖品创建、正常抽奖、订单写入
-- **边界**：活动不存在、活动未开始、活动已结束、活动关闭、活动无库存、奖品无库存、触发限流、超每日次数、`request_id` 重复
-- **并发**：初始库存 100 / 并发 1000，验证 `successful <= 100`、`stock >= 0`、无重复订单
-- **算法**：NFR-4 的确定性测试与统计测试
-- **补偿路径**：构造"Redis 已扣库存但 MySQL 写入失败"，验证库存被正确补回
-- [ ] 更新 `DEVLOG.md`（§10）
+- [x] **正常**：活动创建、奖品创建、正常抽奖、订单写入
+- [x] **边界**：活动不存在、活动未开始、活动已结束、活动关闭、活动无库存、奖品无库存、触发限流、超每日次数、`request_id` 重复
+- [x] **并发**：初始库存 100 / 并发 1000，验证 `successful == 100`、`stock >= 0`、无重复订单
+- [x] **算法**：NFR-4 的确定性测试与统计测试（10 万次模拟，相对误差 < 5%）
+- [x] **补偿路径**：注入 MySQL 提交失败，验证两处 Redis 库存与当日配额都被归还，且幂等占位被释放使该 `request_id` 可重试
+- [x] 更新 `DEVLOG.md`（§10）
+
+运行方式：
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+docker compose up -d
+pytest                    # 全量
+pytest -m concurrency     # 只跑并发用例（较慢）
+```
 
 ### 8.5 Phase 4：Locust + Benchmark（预计 2–4 天）
 
-- [ ] `load_tests/locustfile.py`
-- [ ] 三档场景：50 / 200 / 500（或 1000，依本机实测能力调整）并发
-- [ ] 多 worker 运行（NFR-2）
-- [ ] 产出 `docs/benchmark.md`，字段按 v2 §16.3
-- [ ] `oversold = 0`、`duplicate order = 0`
-- [ ] 更新 `DEVLOG.md`（§10）
+- [x] `load_tests/locustfile.py` + `load_tests/run_benchmark.py`（编排：重置环境 → 起多 worker → 跑三档 → 查库验不变量 → 生成报告）
+- [x] 三档场景：50 / 200 / 500 并发，另加一档 `Contention`（库存 500 对 200 并发）专门验证不超卖
+- [x] 多 worker 运行（NFR-2）：`uvicorn --workers 4`
+- [x] 产出 [`docs/benchmark.md`](benchmark.md)，含测试环境、口径说明、瓶颈定位与业务结果分布
+- [x] **`oversold = 0`、`duplicate order = 0`** —— 四档全部满足
+- [x] 修复压测暴露的瓶颈：SQLAlchemy 连接池默认 5+10 在 200 并发下耗尽（`QueuePool limit ... timeout 30.00`），已调至 40+20 并把 MySQL `max_connections` 提到 500
+- [x] 更新 `DEVLOG.md`（§10）
+
+一条附带的语义修正：连接池耗尽由 500 改为 **503**。服务端本身没有出错，只是负载超过了
+它能同时处理的量，这是容量信号而非缺陷；分开之后失败率才有诊断价值。
+
+运行方式：
+
+```bash
+docker compose up -d
+python load_tests/run_benchmark.py           # 全部四档
+python load_tests/run_benchmark.py Stress    # 只跑一档，便于排查
+```
 
 ### 8.6 Phase 5：README + 交付（预计 2–3 天）
 

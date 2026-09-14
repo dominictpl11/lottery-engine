@@ -22,10 +22,16 @@ services:
       # 固定为 UTC：DATETIME 列存的是 naive UTC（§4.4），若服务器时区不是 UTC，
       # 任何用 CURRENT_TIMESTAMP 的手工 SQL 都会写入与应用不一致的时刻。
       - --default-time-zone=+00:00
+      # 默认 151。压测时 4 worker x (pool 40 + overflow 20) = 240 条，
+      # 不放开的话瓶颈会假性地落在 MySQL 而不是真实的资源上限。
+      - --max-connections=500
     ports:
       - "${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+      # 首次初始化数据卷时执行：额外建一个 lottery_test 库给测试用，
+      # 测试与开发数据彻底隔离。改动这里需要 `docker compose down -v` 重建卷。
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-[REDACTED_LOCAL_CREDENTIAL]}"]
       interval: 5s

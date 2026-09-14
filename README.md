@@ -29,6 +29,33 @@ python -m uvicorn app.main:app --reload --port 8000
 
 > MySQL 映射在宿主机 **3307**，避开本机可能已有的 MySQL 实例。
 
+## 测试
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+docker compose up -d
+pytest                    # 全量
+pytest -m concurrency     # 只跑并发用例（较慢）
+```
+
+测试跑在独立的 `lottery_test` 库与 Redis `db 1` 上，与开发数据完全隔离；
+`conftest.py` 里有断言保证跑错目标时直接失败，而不是清空开发库。
+
+| 层 | 用例 | 覆盖 |
+| --- | --- | --- |
+| `tests/unit/` | 16 | 抽奖算法（含 10 万次分布验证）、时区约定 |
+| `tests/integration/` | 53 | 接口正常与边界、8 类业务拒绝、Redis 组件、5 条补偿路径 |
+| `tests/concurrency/` | 7 | 不超卖、配额不被击穿、幂等、DB 唯一约束兜底 |
+
+## 压测
+
+```bash
+python load_tests/run_benchmark.py
+```
+
+脚本会重置数据、以 4 个 worker 启动服务、按三档并发跑 Locust，跑完直接查库验证
+不变量，最后生成 [`docs/benchmark.md`](docs/benchmark.md)。
+
 ## 接口
 
 | 方法 | 路径 | 说明 |
@@ -72,6 +99,7 @@ lottery-engine/
 | [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) | **需求规格**：功能需求、数据模型 DDL、API 契约、验收标准、已知缺陷 |
 | [`DEVLOG.md`](DEVLOG.md) | **开发日志**：每阶段的关键决策、放弃的方案、踩过的坑、实测证据 |
 | [`docs/db-explain.md`](docs/db-explain.md) | 索引验证：3 条主查询的 `EXPLAIN` 结果 |
+| [`docs/benchmark.md`](docs/benchmark.md) | **压测报告**：吞吐、尾延迟、并发不变量（真实实测） |
 
 冲突时以 `docs/PROJECT_PLAN.md` 为准。
 

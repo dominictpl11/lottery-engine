@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     redis_socket_timeout: float = 3.0
 
+    # 数据库连接池。默认的 5+10 在 200 并发下会耗尽并抛 QueuePool timeout，
+    # 这是 Phase 4 压测暴露出来的瓶颈，详见 docs/benchmark.md。
+    # 约束：workers * (pool_size + max_overflow) 必须小于 MySQL 的 max_connections。
+    db_pool_size: int = 40
+    db_max_overflow: int = 20
+    db_pool_timeout: float = 10.0
+
     # FR-5 幂等：lock 是"处理中"占位的存活时间（进程中途崩溃后多久允许重试），
     # result 是首次结果的可回放时长。
     idempotency_lock_ttl_seconds: int = 60
