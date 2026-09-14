@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lottery Engine · 演示</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Lottery Engine</h1>
+  <p class="sub">并发安全的营销抽奖服务 · 这个页面用来<strong>当场验证</strong>它的并发特性，而不是演示动画</p>
+</header>
+
+<main>
+  <section class="panel" id="activity-panel">
+    <h2>活动</h2>
+    <div id="activity-info" class="muted">加载中…</div>
+    <table id="award-table">
+      <thead><tr><th>奖品</th><th>类型</th><th>权重</th><th>剩余 / 总量</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>抽一次</h2>
+    <div class="row">
+      <label>用户 ID</label>
+      <input id="user-id" value="demo_user">
+      <button id="new-user" class="ghost" title="换一个随机用户，绕开限流和每日配额">换个用户</button>
+    </div>
+    <button id="draw-btn" class="primary">抽奖</button>
+    <div id="draw-result" class="result"></div>
+    <details class="raw">
+      <summary>请求 / 响应原文</summary>
+      <pre id="draw-raw"></pre>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>并发测试</h2>
+    <p class="muted">
+      同时打出 N 个请求，跑完直接核对：<strong>成功抽奖数是否 ≤ 消耗的库存</strong>、
+      <strong>库存是否为负</strong>。这是这个项目的核心主张，可以在这里当场证伪。
+    </p>
+    <div class="row">
+      <label>并发数</label>
+      <input id="burst-n" type="number" value="100" min="1" max="500">
+      <label class="cb"><input type="checkbox" id="burst-same-user"> 全部用同一个用户</label>
+      <label class="cb"><input type="checkbox" id="burst-same-req"> 全部用同一个 request_id</label>
+    </div>
+    <button id="burst-btn" class="primary">开始</button>
+    <div id="burst-result"></div>
+  </section>
+</main>
+
+<footer>
+  <a href="/docs">Swagger</a> ·
+  <a href="https://github.com/dominictpl11/lottery-engine">GitHub</a> ·
+  <span class="muted">活动 ID <code id="aid-label">100001</code></span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -56,7 +56,7 @@ v3.0 相对上一版（v1，2026-06-22）的变化：
 
 严格遵循 v2 §3.3。本项目**不引入**：Java 新功能、Spring Boot、Dubbo、RocketMQ、RabbitMQ、ZooKeeper、Kafka、Kubernetes、微服务拆分、Elasticsearch、Nacos、Service Mesh。
 
-另外不做：管理后台 UI、用户账号体系与鉴权、真实奖品发放对接（优惠券/物流服务）、跨机房高可用、分布式事务框架。
+另外不做：管理后台 UI（**例外**：`/` 提供一个静态演示页，用途是让并发特性可被当场验证，不是运营后台；见 README §13）、用户账号体系与鉴权、真实奖品发放对接（优惠券/物流服务）、跨机房高可用、分布式事务框架。
 
 ### 1.4 Java 版状态
 
@@ -350,6 +350,7 @@ COMMIT
 | GET | `/api/health` | 健康检查 | 已实现 |
 | POST | `/api/activities` | 创建活动 | 已实现 |
 | GET | `/api/activities/{activity_id}` | 查询活动配置 | 已实现 |
+| GET | `/api/activities/{activity_id}/awards` | 列出活动奖品（含已抽空的），演示页用 | 已实现 |
 | POST | `/api/activities/{activity_id}/awards` | 配置奖品 | 已实现 |
 | POST | `/api/lottery/draw` | 执行抽奖 | 已实现；`request_id` 必填，由客户端提供 |
 

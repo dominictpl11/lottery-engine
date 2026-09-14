@@ -265,8 +265,17 @@ cp .env.example .env      # 8000 被占用的话改 API_HOST_PORT
 docker compose up -d      # MySQL + Redis + API，迁移自动执行
 ```
 
+- **演示页：`http://127.0.0.1:8000/`**
 - 健康检查：`http://127.0.0.1:8000/api/health`
 - Swagger：`http://127.0.0.1:8000/docs`
+
+演示页不是转盘动画，而是**用来当场验证并发特性的**：填任意并发数点「开始」，
+它会同时打出 N 个请求，跑完直接对账——产生的订单数是否等于消耗的库存、库存有没有被
+扣成负数。勾上「全部用同一个 request_id」可以现场看到幂等生效：100 个请求只产生
+1 个订单、只扣 1 个库存。
+
+首次使用需要先造一个活动（活动 ID 固定为 `100001`），用 Swagger 的
+`POST /api/activities` 和 `POST /api/activities/{id}/awards` 各调一次即可。
 
 本地开发（不跑 API 容器，用 uvicorn 热重载）：
 
@@ -285,6 +294,7 @@ python -m uvicorn app.main:app --reload --port 8000
 | `GET` | `/api/health` | 健康检查 |
 | `POST` | `/api/activities` | 创建活动（201） |
 | `GET` | `/api/activities/{activity_id}` | 查询活动配置 |
+| `GET` | `/api/activities/{activity_id}/awards` | 列出活动奖品（含已抽空的） |
 | `POST` | `/api/activities/{activity_id}/awards` | 配置奖品（201） |
 | `POST` | `/api/lottery/draw` | 执行抽奖 |
 
