@@ -16,9 +16,15 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 10
     rate_limit_max_count: int = 3
 
-    # Phase 2 接入 Redis 时启用（当前为占位，见缺陷 D8）。
-    redis_url: str = "redis://localhost:6379/0"
-    enable_redis: bool = False
+    # Redis 是并发正确性的依赖（原子库存 / 限流 / 幂等），不是可选加速层，
+    # 因此没有 enable_redis 开关：连不上就快速失败，不静默降级到进程内实现。
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    redis_socket_timeout: float = 3.0
+
+    # FR-5 幂等：lock 是"处理中"占位的存活时间（进程中途崩溃后多久允许重试），
+    # result 是首次结果的可回放时长。
+    idempotency_lock_ttl_seconds: int = 60
+    idempotency_result_ttl_seconds: int = 86400
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

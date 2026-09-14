@@ -324,7 +324,9 @@ COMMIT
 | | |
 | --- | --- |
 | 描述 | 任何并发强度下，活动库存与奖品库存都不得为负，且成功发出的奖品不得超过配置库存。 |
-| 细则 | Redis Lua 单脚本完成"判断 + 扣减"。必须处理：key 不存在时的初始化、活动关闭后的 key 清理、Redis 异常降级策略。**活动库存扣减后若后续步骤失败（无可用奖品 / 奖品扣减失败 / MySQL 写入失败），必须补偿回滚**（这正是 D3）。 |
+| 细则 | Redis Lua 单脚本完成"判断 + 扣减"——`GET` 与 `DECR` 之间存在窗口，分成两条命令必然超卖。**活动库存扣减后若后续步骤失败（无可用奖品 / 奖品扣减失败 / MySQL 写入失败），必须按占用的逆序补偿回滚**（这正是 D3）。 |
+| key 不存在 | 用 `SET NX` 从 MySQL 的**剩余量**（不是总量）初始化后重试一次。用 NX 是因为并发下只能有一个请求写入初值，否则会覆盖别人已扣过的计数；用剩余量是为了让 Redis 被清空后能从 MySQL 的当前进度续上，而不是把库存凭空恢复。 |
+| Redis 不可用 | **快速失败**：抽奖接口返回 503，不降级到进程内实现。进程内实现在多 worker 下根本不成立，静默降级只会把超卖问题藏起来——拒绝服务是可恢复的，超发出去的奖品不是。健康检查不受影响，Redis 恢复后无需重启应用。 |
 | 判定 | §8.4 的并发测试：初始库存 100、并发请求 1000，最终 `successful draws <= 100` 且 `stock >= 0`。 |
 
 ### FR-8 日志可追踪
@@ -349,7 +351,7 @@ COMMIT
 | POST | `/api/activities` | 创建活动 | 已实现 |
 | GET | `/api/activities/{activity_id}` | 查询活动配置 | 已实现 |
 | POST | `/api/activities/{activity_id}/awards` | 配置奖品 | 已实现 |
-| POST | `/api/lottery/draw` | 执行抽奖 | 已实现；`request_id` 当前由服务端生成，Phase 2 改为客户端提供 |
+| POST | `/api/lottery/draw` | 执行抽奖 | 已实现；`request_id` 必填，由客户端提供 |
 
 ### 6.2 POST /api/lottery/draw
 
@@ -435,6 +437,7 @@ COMMIT
 | 409 | `activity_id` / `award_id` 已存在；或同一 `request_id` 正在处理中 |
 | 422 | 参数校验失败（Pydantic） |
 | 500 | 系统错误（含"Redis 已扣库存但 MySQL 写入失败并已补偿"的情形） |
+| 503 | Redis 不可用。**刻意快速失败**，不降级放行——理由见 FR-7 |
 
 **业务拒绝一律用 200，不用 4xx**（限流也不返回 429）。理由见 §7.2：压测的失败率只应统计系统错误；业务拒绝是系统的正确行为，混进 4xx 会让失败率指标失去意义。业务拒绝通过 `reject_reason` 单独计数。
 
@@ -514,12 +517,12 @@ COMMIT
 
 ### 8.3 Phase 2：Redis 并发控制（预计 4–7 天）
 
-- [ ] Redis 客户端接入，**移除 D8 的死配置**
-- [ ] Lua 原子扣库存（活动 + 奖品），含 key 初始化与失败补偿（FR-7）
-- [ ] Redis ZSet + Lua 滑动窗口限流（FR-6a），窗口与阈值可配置
-- [ ] 每日参与次数独立实现（FR-6b）
-- [ ] `request_id` 幂等：Redis 主路径 + MySQL `uk_request_id` 兜底（FR-5）
-- [ ] 库存不会为负；重复请求不产生重复订单；多 worker 下限流状态共享
+- [x] Redis 客户端接入，**移除 D8 的死配置**
+- [x] Lua 原子扣库存（活动 + 奖品），含 key 初始化与失败补偿（FR-7）
+- [x] Redis ZSet + Lua 滑动窗口限流（FR-6a），窗口与阈值可配置
+- [x] 每日参与次数独立实现（FR-6b）
+- [x] `request_id` 幂等：Redis 主路径 + MySQL `uk_request_id` 兜底（FR-5）
+- [x] 库存不会为负；重复请求不产生重复订单；多 worker 下限流状态共享 —— **已实测**：4 worker / 800 并发 / 库存 100 时恰好 100 次中奖；同一用户 12 次并发只放行 3 次（进程内实现在 4 worker 下会放行 12 次）
 
 ### 8.4 Phase 3：pytest（预计 3–5 天）
 
@@ -557,14 +560,14 @@ Celery + Redis 异步发奖；GitHub Actions。若进入本阶段，需补建 `d
 
 | ID | 缺陷 | 位置 | 修复 Phase | 状态 |
 | --- | --- | --- | --- | --- |
-| **D1** | 库存扣减是 read-then-write（先读判 `>0`，再 `-=1`，再 commit），无原子语句 / 行锁 / 乐观锁 → 并发必超卖 | `app/infrastructure/repositories.py` | Phase 2（Lua 替代） | ⬜ 未修复 |
+| **D1** | 库存扣减是 read-then-write（先读判 `>0`，再 `-=1`，再 commit），无原子语句 / 行锁 / 乐观锁 → 并发必超卖 | `app/infrastructure/repositories.py` | Phase 2（Lua 替代） | ✅ 已修复（Phase 2） |
 | **D2** | **`daily_limit` 语义错误**：字段是"每人每日次数"，却以 `window_seconds=60` 传给滑动窗口 → 每日限制根本没实现，用户每分钟重置配额 | `app/application/lottery_process.py:35` | Phase 0（拆成 FR-6a/6b） | ✅ 已修复（Phase 0） |
 | **D3** | **活动库存泄漏**：活动库存先扣（`:38`），之后若无可用奖品（`:43`）或奖品扣减失败（`:47`），**已扣的活动库存不回滚**，直接落 missed 订单 | `app/application/lottery_process.py:38-49` | Phase 0 | ✅ 已修复（Phase 0） |
 | **D4** | 时区不一致：用 naive `datetime.utcnow()`（`:28`）比较 API 传入的时间；调用方按北京时间填写会被误判"不在有效期内" | `lottery_process.py:28,31` vs `domain/models.py:42-43` | Phase 0 | ✅ 已修复（Phase 0） |
-| **D5** | 限流器内存无界增长：`defaultdict(deque)` 的 key 永不清理；`allow()` 的 check-then-append 无锁 | `app/infrastructure/limiters.py` | Phase 2（整体替换为 Redis） | ⬜ 未修复 |
+| **D5** | 限流器内存无界增长：`defaultdict(deque)` 的 key 永不清理；`allow()` 的 check-then-append 无锁 | `app/infrastructure/limiters.py` | Phase 2（整体替换为 Redis） | ✅ 已修复（Phase 2） |
 | **D6** | Pydantic schema 中 `state` / `award_type` 是裸 `str`，未绑定枚举 → 可写入任意非法值 | `app/schemas/activity.py:14,29` | Phase 0 | ✅ 已修复（Phase 0） |
 | **D7** | "活动不存在"这类脏请求也写一行 `draw_order` → 可被刷库 | `lottery_process.py:54-56` | Phase 0（按 §4.5 处理） | ✅ 已修复（Phase 0） |
-| **D8** | `enable_redis` / `redis_url` 是死配置，无任何代码读取；`redis` 依赖已装但 `app/` 下零 import | `app/core/config.py` | Phase 2 | ⬜ 未修复 |
+| **D8** | `enable_redis` / `redis_url` 是死配置，无任何代码读取；`redis` 依赖已装但 `app/` 下零 import | `app/core/config.py` | Phase 2 | ✅ 已修复（Phase 2） |
 
 表中的文件/行号记录的是缺陷**原始位置**，用于追溯，修复后代码已变动。
 

@@ -49,3 +49,14 @@ def china_day_key(value: datetime) -> str:
     否则北京时间每天早上 8 点配额才会重置。
     """
     return from_db(value).astimezone(CHINA_TZ).strftime("%Y%m%d")
+
+
+def seconds_until_china_midnight(value: datetime) -> int:
+    """距离下一个 Asia/Shanghai 零点还有多少秒。
+
+    用作每日配额 key 的 TTL：key 自己到点过期，不需要任何清理任务。
+    至少返回 60 秒，避免正好卡在零点时算出过短甚至为 0 的 TTL。
+    """
+    local = from_db(value).astimezone(CHINA_TZ)
+    tomorrow = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(int((tomorrow - local).total_seconds()), 60)
