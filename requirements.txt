@@ -1,0 +1,19 @@
+# NOTE: keep this file pure ASCII.
+# pip decodes requirements files with the system locale (GBK on this machine)
+# unless the installed pip is new enough to default to UTF-8, so non-ASCII
+# comments make `pip install -r` fail with UnicodeDecodeError.
+# Same constraint applies to alembic.ini.
+
+fastapi==0.115.6
+uvicorn==0.32.1
+SQLAlchemy==2.0.36
+pydantic-settings==2.6.1
+redis==5.2.1
+
+# MySQL driver. PyMySQL is pure Python (no compiler needed on Windows);
+# cryptography is required for MySQL 8+ caching_sha2_password auth.
+PyMySQL==1.1.1
+cryptography==44.0.0
+
+# Database migrations (docs/REQUIREMENTS.md 8.2)
+alembic==1.14.0

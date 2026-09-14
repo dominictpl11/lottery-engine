@@ -1,6 +1,6 @@
 # 索引验证（EXPLAIN）
 
-对应 `lottery_python/REQUIREMENTS.md` §4.3 与 §8.2 的验收项：每个索引都要能回答
+对应 [`REQUIREMENTS.md`](REQUIREMENTS.md) §4.3 与 §8.2 的验收项：每个索引都要能回答
 "哪条查询需要它"，并用 `EXPLAIN` 证明真的命中。
 
 ## 测试条件
@@ -58,8 +58,7 @@ WHERE user_id = 'user_100' AND activity_id = 930005 AND created_at >= '2026-09-0
 ## 复现
 
 ```bash
-cd lottery_python
 docker compose up -d
-./.venv/Scripts/python.exe -m alembic upgrade head
-# 灌数据并执行 EXPLAIN
+python -m alembic upgrade head
+# 灌够数据量后执行 EXPLAIN
 ```
