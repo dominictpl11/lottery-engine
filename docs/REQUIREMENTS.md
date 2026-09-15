@@ -2,7 +2,7 @@
 
 > 文档版本：v3.0
 > 更新时间：2026-09-14
-> 上位文档：[`PROJECT_PLAN.md`](PROJECT_PLAN.md)（下称 **v2**）
+> 上位文档：`planning/PROJECT_PLAN.md`（下称 **v2**，本地文档，不进仓库）
 
 ---
 
@@ -574,7 +574,7 @@ python load_tests/run_benchmark.py Stress    # 只跑一档，便于排查
 
 - [x] API 容器化并入 compose —— `Dockerfile` + `docker/entrypoint.sh`，`docker compose up -d` 一条命令起 MySQL + Redis + API，迁移在 entrypoint 自动执行
 - [x] README 按 v2 §23 的 15 节组织，含架构图、真实 benchmark、**Known Limitations**
-- [x] 简历 bullet 按 §11 的口径落定 —— [`RESUME.md`](RESUME.md)，含"不能说的话"清单
+- [x] 简历 bullet 按 §11 的口径落定 —— `planning/RESUME.md`，含"不能说的话"清单
 - [x] 更新 `DEVLOG.md`（§10）
 
 从空数据卷验证：`docker compose down -v && docker compose up -d` 后三服务全部 healthy、

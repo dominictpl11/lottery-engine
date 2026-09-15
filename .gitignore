@@ -77,3 +77,6 @@ hs_err_pid*
 # 压测时的服务端日志，仅用于本地排查
 bench-server.log
 .bench_tmp/
+
+# 个人规划与简历口径文档，保留在本地，不进公开仓库
+planning/

@@ -4,7 +4,7 @@
 
 ## 文档权威顺序
 
-1. [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) —— 规划：定位、Phase 排期、停止线
+1. `planning/PROJECT_PLAN.md` —— 规划：定位、Phase 排期、停止线（本地文档，不进仓库）
 2. [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) —— 规格：FR/NFR、DDL、API 契约、验收标准
 3. [`DEVLOG.md`](DEVLOG.md) —— 决策记录
 
