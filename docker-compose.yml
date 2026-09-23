@@ -12,10 +12,10 @@ services:
     container_name: lottery-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-[REDACTED_LOCAL_CREDENTIAL]}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-before-use}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-lottery_db}
       MYSQL_USER: ${MYSQL_USER:-lottery}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-[REDACTED_LOCAL_CREDENTIAL]}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-before-use}
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -33,7 +33,7 @@ services:
       # 测试与开发数据彻底隔离。改动这里需要 `docker compose down -v` 重建卷。
       - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-[REDACTED_LOCAL_CREDENTIAL]}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-change-me-before-use}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
     environment:
       # 容器之间用服务名互相寻址，不走宿主机端口。
-      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-lottery}:${MYSQL_PASSWORD:[REDACTED_LOCAL_CREDENTIAL]@mysql:3306/${MYSQL_DATABASE:-lottery_db}?charset=utf8mb4
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-lottery}:${MYSQL_PASSWORD:-change-me-before-use}@mysql:3306/${MYSQL_DATABASE:-lottery_db}?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
       RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-10}
       RATE_LIMIT_MAX_COUNT: ${RATE_LIMIT_MAX_COUNT:-3}

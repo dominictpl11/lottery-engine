@@ -12,7 +12,7 @@
 import os
 
 os.environ["DATABASE_URL"] = (
-    "mysql+pymysql://lottery:[REDACTED_LOCAL_CREDENTIAL]@127.0.0.1:3307/lottery_test?charset=utf8mb4"
+    "mysql+pymysql://lottery:change-me-before-use@127.0.0.1:3307/lottery_test?charset=utf8mb4"
 )
 os.environ["REDIS_URL"] = "redis://127.0.0.1:6379/1"
 os.environ["RATE_LIMIT_WINDOW_SECONDS"] = "10"

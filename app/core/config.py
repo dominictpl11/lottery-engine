@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     # 这里的默认值是**本地开发占位**，与 docker-compose.yml 的默认账号一致，
     # 不是密钥；任何非本地部署都必须通过环境变量 / .env 覆盖 DATABASE_URL（NFR-5）。
     database_url: str = (
-        "mysql+pymysql://lottery:[REDACTED_LOCAL_CREDENTIAL]@127.0.0.1:3307/lottery_db?charset=utf8mb4"
+        "mysql+pymysql://lottery:change-me-before-use@127.0.0.1:3307/lottery_db?charset=utf8mb4"
     )
 
     # FR-6a 频率限流（防滥用）。窗口与阈值必须可配置，不得硬编码。

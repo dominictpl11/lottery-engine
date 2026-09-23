@@ -38,7 +38,7 @@ SERVER_LOG = Path(__file__).resolve().parent.parent / "bench-server.log"
 WORKERS = 4
 CN = timezone(timedelta(hours=8))
 
-MYSQL = dict(host="127.0.0.1", port=3307, user="lottery", password="[REDACTED_LOCAL_CREDENTIAL]",
+MYSQL = dict(host="127.0.0.1", port=3307, user="lottery", password="change-me-before-use",
              database="lottery_db")
 
 # 吞吐场景用充足库存，让绝大多数请求走完整链路；
@@ -78,7 +78,7 @@ def drop_lingering_connections():
     上面的 kill_tree 已经能覆盖正常情况，这里是防御性兜底。
     """
     import pymysql
-    c = pymysql.connect(host="127.0.0.1", port=3307, user="root", password="[REDACTED_LOCAL_CREDENTIAL]")
+    c = pymysql.connect(host="127.0.0.1", port=3307, user="root", password="change-me-before-use")
     with c.cursor() as cur:
         cur.execute("SELECT ID FROM information_schema.processlist WHERE USER='lottery'")
         for (cid,) in cur.fetchall():
@@ -134,7 +134,7 @@ def reset_db():
     import redis
 
     drop_lingering_connections()
-    root = pymysql.connect(host="127.0.0.1", port=3307, user="root", password="[REDACTED_LOCAL_CREDENTIAL]")
+    root = pymysql.connect(host="127.0.0.1", port=3307, user="root", password="change-me-before-use")
     with root.cursor() as cur:
         cur.execute("DROP DATABASE IF EXISTS lottery_db")
         cur.execute("CREATE DATABASE lottery_db DEFAULT CHARACTER SET utf8mb4 "
@@ -256,7 +256,7 @@ def env_info():
     # 不指定 database：查版本不该依赖业务库是否已经建好，
     # 否则上一轮中断留下的空环境会让脚本一开始就挂掉。
     c = pymysql.connect(host=MYSQL["host"], port=MYSQL["port"],
-                        user=MYSQL["user"], password=[REDACTED_LOCAL_CREDENTIAL]["password"])
+                        user=MYSQL["user"], password=MYSQL["password"])
     with c.cursor() as cur:
         cur.execute("SELECT VERSION()")
         mysql_v = cur.fetchone()[0]
